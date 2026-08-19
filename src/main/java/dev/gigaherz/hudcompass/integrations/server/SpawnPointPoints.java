@@ -52,6 +52,22 @@ public class SpawnPointPoints
         var points = ServerWaypointSync.get(player);
         SpawnPointAddon addon = points.getOrCreateAddonData(ADDON_ID, SpawnPointAddon::new);
 
+        // The tracked waypoint can go stale without ever passing through this method's own
+        // add/remove logic below: a relog triggers PointsOfInterest#deserialize(), which clears
+        // perWorld entirely (dynamic points -- this one included -- are never saved, by design),
+        // but that doesn't touch this addon's own bookkeeping, which lives in a separate map and
+        // survives on the same never-evicted PointsOfInterest (see ServerWaypointSync). Left
+        // unchecked, the logic below would see addon.waypoint still non-null and the spawn point
+        // unchanged, conclude nothing needs to happen, and never re-add it -- the waypoint simply
+        // disappears after every relog. Detect that here and treat it the same as "no waypoint
+        // yet" so it gets added back below.
+        if (addon.waypoint != null && points.get(addon.spawnWorld).find(addon.waypoint.getInternalId()).isEmpty())
+        {
+            addon.waypoint = null;
+            addon.spawnWorld = null;
+            addon.spawnPosition = null;
+        }
+
         var respawnConfig = player.getRespawnConfig();
         ResourceKey<Level> worldKey = respawnConfig != null ? respawnConfig.respawnData().dimension() : null;
         BlockPos spawnPosition = respawnConfig != null ? respawnConfig.respawnData().pos() : null;

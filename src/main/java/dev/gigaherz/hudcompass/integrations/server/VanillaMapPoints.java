@@ -119,7 +119,7 @@ public class VanillaMapPoints
                 for (MapBanner banner : mapData.bannerMarkers.values())
                 {
                     MapDecoration decoration = mapData.decorations.get(banner.getId());
-                    if (decoration != null && !decorationPointInfoMap.containsKey(decoration))
+                    if (decoration != null && !isTracked(worldPoints, decorationPointInfoMap, decoration))
                     {
                         MapBannerWaypoint wp = new MapBannerWaypoint(banner, decoration);
                         decorationPointInfoMap.put(decoration, wp);
@@ -137,7 +137,7 @@ public class VanillaMapPoints
                             decoration.type() == MapDecorationTypes.PLAYER_OFF_MAP)
                         continue;
 
-                    if (!decorationPointInfoMap.containsKey(decoration))
+                    if (!isTracked(worldPoints, decorationPointInfoMap, decoration))
                     {
                         MapDecorationWaypoint wp = new MapDecorationWaypoint(mapData, decoration);
                         decorationPointInfoMap.put(decoration, wp);
@@ -156,6 +156,22 @@ public class VanillaMapPoints
             }
         }
         return seenMaps;
+    }
+
+    /**
+     * Whether {@code decoration}'s waypoint is both known to this addon's bookkeeping AND still
+     * actually present in {@code worldPoints}. The two can disagree after a relog: {@code
+     * PointsOfInterest#deserialize()} clears {@code perWorld} entirely (dynamic points, this one
+     * included, are never saved), but doesn't touch this addon's own bookkeeping map, which lives
+     * separately and survives on the same never-evicted {@code PointsOfInterest}. Without this
+     * check, a stale-but-still-present bookkeeping entry would make the caller think the waypoint
+     * already exists and skip re-adding it -- it would just silently never reappear after a relog
+     * (same class of bug as {@code SpawnPointPoints} had for the same underlying reason).
+     */
+    private static boolean isTracked(PointsOfInterest.WorldPoints worldPoints, Map<MapDecoration, PointInfo<?>> decorationPointInfoMap, MapDecoration decoration)
+    {
+        PointInfo<?> existing = decorationPointInfoMap.get(decoration);
+        return existing != null && worldPoints.find(existing.getInternalId()).isPresent();
     }
 
     public static class MapBannerWaypoint extends PointInfo<MapBannerWaypoint>
