@@ -300,10 +300,15 @@ public class HudOverlay
         }
     }
 
+    // x = -4.0f centers the 8px-wide arrow on the same x=0 the waypoint icon itself is centered
+    // on (see BasicIconRenderer, which does x - ICON_WIDTH/2). Upstream hardcodes -4.5f here for
+    // both arrows -- a half-pixel-left-of-center offset from the icon, invisible at 1x scale but
+    // clearly visible once nearest-neighbor-scaled up at a higher GUI scale. Deliberately
+    // corrected rather than matched, unlike most of this port's other upstream-parity choices.
     private void drawAboveArrow(GuiGraphicsExtractor graphics, float yDelta, int alpha)
     {
         var tex = yDelta > 10 ? "above" : "slightly_above";
-        var x = -4.5f;
+        var x = -4.0f;
         var y = 4.0f;
         drawMapIcon(graphics, HudCompass.location(tex), x, x + 8, y, y + 8, 1, 1, 1, alpha / 255.0f);
     }
@@ -311,7 +316,7 @@ public class HudOverlay
     private void drawBelowArrow(GuiGraphicsExtractor graphics, float yDelta, int alpha)
     {
         var tex = yDelta < -10 ? "below" : "slightly_below";
-        var x = -4.5f;
+        var x = -4.0f;
         var y = 16.0f;
         drawMapIcon(graphics, HudCompass.location(tex), x, x + 8, y, y + 8, 1, 1, 1, alpha / 255.0f);
     }
