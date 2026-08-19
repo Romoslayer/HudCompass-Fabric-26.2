@@ -51,10 +51,18 @@ Fabric equivalent and needed replacing, not just renaming.
 
 - Working dir: `C:\Users\josep\Desktop\HudCompass-Fabric-26.2\`
 - Upstream reference clone (untouched, for diffing): `.\upstream-src\` (do not edit; it's the
-  NeoForge source being ported *from*)
-- No git repo initialized yet in the port itself — nothing committed, nothing pushed anywhere.
-- No GitHub repo created for this port yet. **Per user's stated workflow preference, confirm
-  with them before creating a public repo, publishing, or opening any PR.**
+  NeoForge source being ported *from* -- gitignored, not part of this repo)
+- Git repo: initialized, public on GitHub at
+  [Romoslayer/HudCompass-Fabric-26.2](https://github.com/Romoslayer/HudCompass-Fabric-26.2).
+  **Still confirm with the user before force-pushing, rewriting history, or anything else
+  destructive** -- the "confirm before publishing" preference was specifically about the initial
+  publish decision, which has now happened; it doesn't blanket-authorize every future git/GitHub
+  action without asking.
+- `fabric.mod.json`'s `contact` block (homepage/sources/issues) and the README both point at this
+  repo, not upstream's -- deliberately fixed after almost shipping ModMenu's mod-info card
+  pointing bug reports about this port's own code at gigaherz's actual project instead. If you
+  add any new file with a homepage/issues/contact-style field (a CurseForge/Modrinth manifest, a
+  GitHub issue template, etc.), point it here too, not at upstream.
 
 ## Scope decision (confirmed with user this session)
 
@@ -641,8 +649,14 @@ Direct-Connects to `localhost:<port>`.
 
 - `LICENSE.txt` copied byte-for-byte unmodified from upstream (BSD 3-clause, David Quintana /
   gigaherz, 2020).
-- `fabric.mod.json`: `authors: ["gigaherz"]`, `contributors: ["Romoslayer (Fabric 26.2 port)"]`.
-- `README.md` credits gigaherz for the original mod and states clearly this is a Fabric port,
-  with an explicit "what's not ported yet" section.
-- Nothing published/submitted anywhere — no Modrinth/CurseForge listing started, no GitHub repo
-  created for this fork specifically.
+- `fabric.mod.json`: `authors: ["gigaherz"]`, `contributors: ["Romoslayer (Fabric 26.2 port)"]`,
+  `description` explicitly states "Unofficial Fabric port... not affiliated with or endorsed by
+  the original author", and `contact.homepage`/`sources`/`issues` all point at this port's own
+  repo, not upstream's.
+- `README.md` credits gigaherz for the original mod, states clearly this is a Fabric port, and
+  carries an explicit disclaimer block: not affiliated with/endorsed by/maintained by gigaherz,
+  with a pointer to the real upstream repo and an explicit "report bugs in this port here, not
+  upstream" line.
+- Public GitHub repo: [Romoslayer/HudCompass-Fabric-26.2](https://github.com/Romoslayer/HudCompass-Fabric-26.2).
+  Not published to Modrinth/CurseForge yet -- if that happens, carry the same disclaimer language
+  into that listing's description too, and make sure its "source"/"issues" links point here.
