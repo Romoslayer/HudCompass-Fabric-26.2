@@ -300,15 +300,19 @@ public class HudOverlay
         }
     }
 
-    // x = -4.0f centers the 8px-wide arrow on the same x=0 the waypoint icon itself is centered
-    // on (see BasicIconRenderer, which does x - ICON_WIDTH/2). Upstream hardcodes -4.5f here for
-    // both arrows -- a half-pixel-left-of-center offset from the icon, invisible at 1x scale but
-    // clearly visible once nearest-neighbor-scaled up at a higher GUI scale. Deliberately
-    // corrected rather than matched, unlike most of this port's other upstream-parity choices.
+    // x = -4.5f, NOT -4.0f (which would just match the icon's own x - ICON_WIDTH/2 centering):
+    // an earlier pass "corrected" this to -4.0f assuming both sprites were symmetric the same way
+    // within their 8px canvas, which was wrong. Pixel-inspecting the actual PNGs
+    // (above/below/slightly_above/slightly_below, all 8x8) shows their triangle content is
+    // consistently drawn off-center -- content spans columns 2-6 (local x [2,7), content-center
+    // 4.5) rather than the canvas's own geometric center (4.0), unlike generic.png's diamond,
+    // whose content genuinely is centered at 4.0. -4.5f is upstream's deliberate compensation for
+    // that 0.5px artwork bias, producing correctly-centered final output -- verified by computing
+    // both sprites' actual content-center from their pixel data, not by eyeballing a screenshot.
     private void drawAboveArrow(GuiGraphicsExtractor graphics, float yDelta, int alpha)
     {
         var tex = yDelta > 10 ? "above" : "slightly_above";
-        var x = -4.0f;
+        var x = -4.5f;
         var y = 4.0f;
         drawMapIcon(graphics, HudCompass.location(tex), x, x + 8, y, y + 8, 1, 1, 1, alpha / 255.0f);
     }
@@ -316,7 +320,7 @@ public class HudOverlay
     private void drawBelowArrow(GuiGraphicsExtractor graphics, float yDelta, int alpha)
     {
         var tex = yDelta < -10 ? "below" : "slightly_below";
-        var x = -4.0f;
+        var x = -4.5f;
         var y = 16.0f;
         drawMapIcon(graphics, HudCompass.location(tex), x, x + 8, y, y + 8, 1, 1, 1, alpha / 255.0f);
     }
