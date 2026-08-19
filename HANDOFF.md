@@ -73,7 +73,7 @@ nothing functional existed to port anyway). **Revisited and implemented later in
 session** once the user confirmed they'd actually be running JourneyMap alongside HudCompass --
 see "JourneyMap integration" below.
 
-## What's implemented (MVP)
+## What's implemented
 
 - The compass HUD itself: cardinal directions, waypoint icons + labels, above/below arrows,
   fade/distance behavior — registered via Fabric API's `HudElementRegistry.attachElementAfter`.
