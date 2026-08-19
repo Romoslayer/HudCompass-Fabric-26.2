@@ -107,6 +107,25 @@ before touching arrow/icon rendering again.
   a HudCompass bug -- confirmed via the user checking JourneyMap's *own* waypoint manager (press
   J) that the waypoints were gone from JourneyMap's own data too, not just from the compass
   mirror. Nothing to fix on this end; a read-only mirror can't show data the source no longer has.
+- **The Home marker showing up as a deletable entry in the waypoint editor, and always coming
+  back after being deleted there** -- found via the user repeatedly trying to delete it and it
+  always returning, even after breaking and replacing the bed entirely. Root cause:
+  `BasicWaypoint`'s network-decode constructor hardcoded `isDynamic=false` (present in upstream's
+  own source too, not a porting regression -- but a real functional bug regardless, fixed rather
+  than preserved, unlike the arrow's rendering-fidelity situation above). `SpawnPointPoints`' Home
+  marker is the only `BasicWaypoint` ever created `dynamic()`; syncing it to a client silently
+  dropped that flag, so the client's own copy looked like an ordinary, user-owned waypoint --
+  including being listed in the editor (which is only ever meant to show real, user-owned
+  waypoints; dynamic ones are explicitly filtered out by `loadWaypoints()`). Deleting it there
+  appeared to work, only for `SpawnPointPoints`' own self-healing re-add logic (the earlier relog
+  fix, just above) to silently recreate it within about a second, since nothing about the actual
+  spawn point had changed from the server's point of view. Fixed by actually encoding `isDynamic`
+  in `BasicWaypoint.STREAM_CODEC` and threading it through a real network-decode constructor,
+  keeping a separate NBT-decode constructor hardcoded to `false` (correctly -- dynamic points are
+  never written to NBT, so that path never needs to reconstruct one). **Confirmed fixed in-game**:
+  Home no longer appears in the editor at all (even after replacing the bed to force an update),
+  and normal create/edit/delete of real user waypoints was re-confirmed still working correctly
+  afterward -- the fix didn't regress the common case.
 
 ## Restored sub-pixel GUI rendering (this session)
 
