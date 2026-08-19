@@ -41,6 +41,102 @@ incomplete — confirmed by checking upstream's actual source, not assumed):
 - JourneyMap-mirrored waypoints render as a generic tinted icon, not each waypoint's real custom
   texture. Upstream has a literal `// TODO: icon textures` here and never finished it either.
 
+## Live-playtesting bug fixes (this session)
+
+Once the port was feature-complete, a real playtesting pass against a live build surfaced several
+issues -- some genuine bugs (fixed), some correctly-behaving-but-confusing (explained below rather
+than "fixed"), and one genuinely two backwards-and-forwards diagnosis that's worth reading in full
+before touching arrow/icon rendering again.
+
+- **JourneyMap waypoint labels blinking on the compass**: root-caused to
+  `HudCompassJourneymapPlugin.reconcileTick` rebuilding a brand-new `JmWaypoint` object every
+  second for every already-tracked waypoint, even when nothing about it had changed. Since
+  `PointInfo.fade` (the label fade-in animation state) lives on the object, a fresh instance reset
+  it every second, restarting the fade-in -- with `animateLabels` on (the default), that reads as
+  blinking. Fixed by adding `JmWaypoint#update(Waypoint)`, which refreshes label/position/icon on
+  the *existing* object in place instead of replacing it, used by both `reconcileTick` and the
+  live `WAYPOINT_EVENT` UPDATE handler via a shared `upsert` helper. Confirmed fixed in-game.
+- **Home waypoint (and map banner/decoration markers) disappearing after a relog**: a real,
+  systemic bug in both `SpawnPointPoints` and `VanillaMapPoints`. Their per-player addon
+  bookkeeping lives on the same never-evicted `PointsOfInterest` object `ServerWaypointSync` keeps
+  for the whole server session, but a relog triggers `PointsOfInterest#deserialize()`, which
+  clears `perWorld` entirely (dynamic points -- these included -- are never saved, by design).
+  The bookkeeping doesn't know the underlying point vanished, concludes nothing changed, and never
+  re-adds it. Fixed in both classes by verifying the tracked point is still actually present in
+  the `WorldPoints` map (via `WorldPoints#find`) before trusting the bookkeeping's "already have
+  it" claim. `PlayerTracker` never had this bug -- its tracking state is cleared on
+  `ServerPlayConnectionEvents.DISCONNECT` instead of living on the addon data, so it naturally
+  starts fresh on rejoin. Confirmed fixed in-game (Home survived a relog; hadn't been separately
+  re-confirmed for map markers as of this session ending).
+- **Above/below waypoint elevation arrow visibly misaligned under its icon** -- the one that took
+  three attempts to actually fix, and is worth reading in full if it ever resurfaces:
+  1. First attempt: assumed the arrow's hardcoded `x = -4.5f` offset was simply wrong (should
+     match the icon's own `x - ICON_WIDTH/2` centering formula) and changed it to `-4.0f`. This
+     was **wrong** -- didn't actually change anything, for a reason not yet understood at the time.
+  2. Second attempt, after the user reported it was *still* misaligned: pixel-inspected the actual
+     arrow textures (`above.png`/`below.png`/`slightly_above.png`/`slightly_below.png`, all 8x8)
+     via a PowerShell + `System.Drawing` alpha-channel dump (`python3` isn't installed in this
+     environment -- this is the working alternative). Found their triangle content is consistently
+     drawn with its content-center at local x=4.5, not the canvas's own geometric center (4.0) --
+     unlike `generic.png`'s diamond, which really is centered at 4.0. This meant upstream's
+     original `-4.5f` was a deliberate, *correct* compensation for that art asymmetry, and the
+     "fix" from attempt 1 had actually broken it. Reverted back to `-4.5f`.
+  3. Still misaligned even after the revert -- which shouldn't have been possible if `-4.5f` was
+     truly correct. The real root cause, found by re-reading `HudOverlay.drawSprite`: it computes
+     `Math.round(x)` before drawing, and **`Math.round(-4.5f) == Math.round(-4.0f) == -4`** in
+     Java (rounds `.5` up, not away from zero) -- meaning attempts 1 and 2 were rendering *the
+     exact same pixel position the whole time*. The true root cause was that `HudOverlay`'s
+     blit/fill helpers were quietly simplified during the original port to call
+     `GuiGraphicsExtractor`'s higher-level integer-position methods (`blitSprite`/`fill`/`blit`)
+     instead of upstream's true sub-pixel float-precision custom render-state submission -- MC
+     26.2 dropped the direct `submitGuiElementRenderState`/`peekScissorStack` methods that
+     simplification was originally justified by. The *real* fix (user explicitly asked for
+     maximum upstream fidelity over a smaller patch): restore true sub-pixel rendering. See
+     "Restored sub-pixel GUI rendering" below. Confirmed fixed in-game after that.
+  - **Lesson for future sessions**: don't change a pixel-position value based on eyeballing a
+    screenshot without first checking (a) the actual pixel content of the sprite involved, and
+    (b) whether the rendering path even honors sub-pixel values at all. Both steps would have
+    caught this in one pass instead of three.
+- **Two things investigated and confirmed as correct/expected behavior, not bugs**:
+  - Map banner/decoration waypoint disappearing after dropping the map that showed it -- by
+    design; `VanillaMapPoints` only shows markers for maps you're actively carrying.
+  - A brief delay before waypoints populate on join/relog -- inherent to the sync handshake
+    (`ServerHello` → `ClientHello` → the actual snapshot is at least a couple of network ticks,
+    even on localhost), not something to chase further.
+- **JourneyMap waypoints not reappearing, even in the same world**: investigated and ruled out as
+  a HudCompass bug -- confirmed via the user checking JourneyMap's *own* waypoint manager (press
+  J) that the waypoints were gone from JourneyMap's own data too, not just from the compass
+  mirror. Nothing to fix on this end; a read-only mirror can't show data the source no longer has.
+
+## Restored sub-pixel GUI rendering (this session)
+
+`HudOverlay`'s `blitRaw`/`fillRect` now submit true floating-point-precision `GuiElementRenderState`s
+directly, matching upstream's original implementation almost verbatim (including upstream's own
+internal `u0/u1/v0/v1` constructor-argument reordering inside `BlitRenderStateF`'s convenience
+constructor -- deliberately left exactly as upstream has it, not "cleaned up", since fidelity to
+upstream was the explicit goal here, not a rewrite). This *replaces* the simplified
+`blitSprite`/`fill`(int-position) approach used since the original port -- see "Live-playtesting
+bug fixes" above for why that simplification turned out to matter (whole-pixel rounding on every
+blit/fill call).
+
+MC 26.2's `GuiGraphicsExtractor` has no direct `submitGuiElementRenderState`/`peekScissorStack`
+methods the way the 26.1.2 API upstream targets does (confirmed absent via javap against the real
+jar -- this was already known from an earlier session's porting-notes; what wasn't caught at the
+time was that the simplification taken *because* of that had a real behavioral cost). The same
+underlying submission points still exist, just relocated one layer down:
+- `GuiRenderState#addGuiElement(GuiElementRenderState)`, reached via `GuiGraphicsExtractor`'s
+  private `guiRenderState` field.
+- `ScissorStack#peek(): ScreenRectangle`, reached via `GuiGraphicsExtractor`'s private
+  `scissorStack` field -- note `GuiGraphicsExtractor$ScissorStack` itself is also package-private,
+  not just the field, so it's access-widened too (`accessible class`, not just `accessible
+  field`), otherwise `var`-inferring the field's value works but naming the type anywhere doesn't.
+
+Both access-widened in `hudcompass.accesswidener`, same established pattern as the existing
+`MapItemSavedData` entries. `PlayerFaceRenderer` was also updated to call the restored `blitRaw`
+with upstream's exact `drawFaceLayer` UV computation (lifted from upstream's
+`PlayerTracker.OtherPlayerRenderer`), replacing a simpler pixel-region blit overload this port had
+invented for it that no longer has any reason to exist now that the real thing is back.
+
 ## What this is
 
 A Fabric port of [gigaherz/HudCompass](https://github.com/gigaherz/HudCompass) (a NeoForge mod)
