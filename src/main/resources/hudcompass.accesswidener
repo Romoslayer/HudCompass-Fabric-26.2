@@ -1,0 +1,9 @@
+accessWidener v2 official
+
+# For VanillaMapPoints (server-side waypoint source: banner/decoration markers on carried maps).
+# Verified against the real MC 26.2 jar via javap -- centerX/centerZ/dimension/scale are already
+# public on MapItemSavedData, only these two are private. There is no "banners" field in this
+# version (an earlier commented-out template here, copied from upstream's NeoForge access
+# transformer, guessed one that doesn't exist -- corrected after checking the actual class).
+accessible field net/minecraft/world/level/saveddata/maps/MapItemSavedData bannerMarkers Ljava/util/Map;
+accessible field net/minecraft/world/level/saveddata/maps/MapItemSavedData decorations Ljava/util/Map;

@@ -1,0 +1,11 @@
+package dev.gigaherz.hudcompass.icons.client;
+
+import dev.gigaherz.hudcompass.icons.IIconData;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.renderer.texture.TextureManager;
+import net.minecraft.world.entity.player.Player;
+
+public interface IIconRenderer<T extends IIconData<T>>
+{
+    void renderIcon(T data, Player player, TextureManager textureManager, GuiGraphicsExtractor graphics, int x, int y, int alpha);
+}

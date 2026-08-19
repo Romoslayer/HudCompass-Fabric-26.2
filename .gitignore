@@ -1,0 +1,16 @@
+.gradle/
+build/
+run/
+run2/
+out/
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+bin/
+
+# Reference-only clone of upstream, kept locally for diffing -- not part of this port,
+# and is itself a separate git repository (would embed as a nested/broken gitlink otherwise).
+upstream-src/

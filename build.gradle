@@ -1,0 +1,130 @@
+plugins {
+    id 'java-library'
+    id 'eclipse'
+    id 'idea'
+    id 'net.fabricmc.fabric-loom' version '1.17.+'
+}
+
+version = mod_version
+group = 'dev.gigaherz.hudcompass'
+base.archivesName = "${mod_id}-${mc_version}-fabric"
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(java_version.toInteger())
+
+repositories {
+    mavenCentral()
+
+    // JourneyMap API, for the optional integration -- soft dependency, compile-only, never
+    // shaded/included. Both repos are listed per JourneyMap's own current setup guidance: the
+    // new one is where they want people to move to, the old one is kept as a fallback since it
+    // has a history of going down.
+    maven {
+        name = "New JourneyMap Maven"
+        url = 'https://maven.blamejared.com'
+    }
+    maven {
+        name = "JourneyMap (Public)"
+        url = 'https://jm.gserv.me/repository/maven-public/'
+    }
+
+    // ModMenu + Cloth Config, for the optional in-game config screen integration -- both are
+    // the mod authors' own maven repos (real group:artifact:version coordinates), same
+    // preference as the JourneyMap repos above over an opaque hash-keyed Modrinth Maven coordinate.
+    maven {
+        name = "TerraformersMC"
+        url = 'https://maven.terraformersmc.com/releases/'
+    }
+    maven {
+        name = "Shedaniel"
+        url = 'https://maven.shedaniel.me/'
+    }
+}
+
+loom {
+    runs {
+        configureEach {
+            ideConfigGenerated(true)
+            runDir('run')
+        }
+
+        client {
+            client()
+            setConfigName('Fabric: Client')
+        }
+
+        // Second instance for manual LAN/multiplayer testing -- separate run dir so it doesn't
+        // collide with the primary client's config/log files when both run at once.
+        client2 {
+            client()
+            setConfigName('Fabric: Client 2')
+            runDir('run2')
+        }
+    }
+
+    mixin {
+        useLegacyMixinAp = false
+    }
+
+    accessWidenerPath.set(file("src/main/resources/${mod_id}.accesswidener"))
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${mc_version}"
+
+    implementation "net.fabricmc:fabric-loader:${loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}+${mc_version}"
+
+    annotationProcessor "io.github.llamalad7:mixinextras-fabric:${mixin_extras_version}"
+    implementation(include("io.github.llamalad7:mixinextras-fabric:${mixin_extras_version}"))
+
+    // JourneyMap API: compile-only soft dependency, matching this project's existing pattern of
+    // plain (non-"mod"-prefixed) dependencies -- MC 26.1+ ships already-named jars, and this API
+    // artifact is likewise already built against official names, so no Loom remap step applies
+    // here either. Never shaded into the jar, and JourneyMap itself is never required at runtime
+    // -- see the integration's own package javadoc for how the soft-dependency loading works.
+    compileOnly "info.journeymap:journeymap-api-fabric:${journeymap_api_version}"
+
+    // ModMenu + Cloth Config: compile-only soft dependencies for the in-game config screen,
+    // matching the JourneyMap integration's pattern above -- neither is required at runtime,
+    // see integrations.modmenu's package javadoc for how the soft-dependency loading works.
+    compileOnly "com.terraformersmc:modmenu:${modmenu_version}"
+    compileOnly "me.shedaniel.cloth:cloth-config-fabric:${cloth_config_version}"
+}
+
+jar {
+    from(files('LICENSE.txt'))
+
+    manifest {
+        attributes([
+                "Specification-Title"     : "hudcompass",
+                "Specification-Vendor"    : "gigaherz",
+                "Specification-Version"   : "1",
+                "Implementation-Title"    : project.name,
+                "Implementation-Version"  : project.version,
+                "Implementation-Vendor"   : "gigaherz, Romoslayer",
+                "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+        ])
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release.set(java_version.toInteger())
+}
+
+processResources {
+    inputs.property "version", project.version
+    inputs.property "mod_name", mod_name
+    filteringCharset "UTF-8"
+
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version, "mod_name": mod_name
+    }
+}
+
+idea {
+    module {
+        downloadSources = true
+        downloadJavadoc = true
+    }
+}

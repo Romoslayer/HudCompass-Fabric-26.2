@@ -1,0 +1,967 @@
+package dev.gigaherz.hudcompass.client;
+
+import com.google.common.collect.Lists;
+import com.mojang.blaze3d.platform.InputConstants;
+import dev.gigaherz.hudcompass.client.widget.ScrollPanel;
+import dev.gigaherz.hudcompass.icons.BasicIconData;
+import dev.gigaherz.hudcompass.network.UpdateWaypointsFromGui;
+import dev.gigaherz.hudcompass.waypoints.BasicWaypoint;
+import dev.gigaherz.hudcompass.waypoints.PointAddRemoveEntry;
+import dev.gigaherz.hudcompass.waypoints.PointInfo;
+import dev.gigaherz.hudcompass.waypoints.PointsOfInterest;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.events.ContainerEventHandler;
+import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.gui.narration.NarratableEntry;
+import net.minecraft.client.gui.narration.NarrationElementOutput;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.util.Mth;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.regex.Pattern;
+
+/**
+ * In-game waypoint editor -- add/edit/delete waypoints in a scrollable, per-world-grouped list.
+ * Opened via the {@code key.hudcompass.edit_waypoints} keybind (see {@link ClientHandler}).
+ * <p>
+ * Ported from upstream's {@code ClientWaypointManagerScreen}, which is built on NeoForge's
+ * {@code ScrollPanel} widget -- Fabric has no equivalent, so {@link ScrollPanel} (this port's own
+ * package) reimplements the same scrolling algorithm. See that class's javadoc for detail.
+ * <p>
+ * Two simplifications versus upstream, both following from this port's already-simplified data
+ * model (a single client-side {@link PointsOfInterest#INSTANCE}, not a per-player NeoForge
+ * attachment, and no {@code ResourceKey<DimensionType>} tracked per world -- see
+ * {@code PointsOfInterest}'s own class javadoc):
+ * <ul>
+ *     <li>No sync-listener re-population: upstream re-read the list on an attachment sync
+ *     callback. This port's {@code PointsOfInterest.INSTANCE} has no such listener hook, and the
+ *     only sync that matters (the initial one on join) already happens well before a player could
+ *     have opened this screen.</li>
+ *     <li>{@link #getPlayerPositionScaled} drops upstream's custom-dimension teleportation-scale
+ *     lookup (needs a {@code ResourceKey<DimensionType>} this port doesn't carry per world),
+ *     keeping only the Nether's fixed 8:1 vanilla scale.</li>
+ * </ul>
+ * A third, unrelated gap carried over unchanged from upstream itself: the "change symbol" button
+ * is left disabled -- upstream never finished an icon picker either.
+ */
+public class ClientWaypointManagerScreen extends Screen
+{
+    private static final Component TITLE = Component.translatable("text.hudcompass.waypoint_editor.title");
+
+    private static final Pattern COORD_FORMAT = Pattern.compile("^-?[0-9]+\\.?[0-9]+$");
+
+    private static final int MARGIN_LEFT = 8;
+    private static final int MARGIN_TOP = 36;
+    private static final int MARGIN_RIGHT = 8;
+    private static final int MARGIN_BOTTOM = 34;
+
+    private final List<WaypointListItem> toAdd = new ArrayList<>();
+    private final List<WaypointListItem> toUpdate = new ArrayList<>();
+    private final List<WaypointListItem> toRemove = new ArrayList<>();
+
+    private ItemsScrollPanel scrollPanel;
+    private Button saveButton;
+
+    public ClientWaypointManagerScreen()
+    {
+        super(TITLE);
+    }
+
+    private void setDirty()
+    {
+        saveButton.active = true;
+    }
+
+    private void loadWaypoints()
+    {
+        PointsOfInterest.INSTANCE.getAllWorlds().stream()
+                .sorted(Comparator.comparing(w -> w.getWorldKey().identifier()))
+                .forEach(world -> {
+                    WorldListItem worldItem = addWorld(world.getWorldKey());
+
+                    for (PointInfo<?> point : world.getPoints())
+                    {
+                        if (!point.isDynamic() && point instanceof BasicWaypoint wp)
+                        {
+                            addPoint(worldItem, wp);
+                        }
+                    }
+
+                    addNewWaypointItem(worldItem);
+                });
+    }
+
+    @Override
+    protected void init()
+    {
+        super.init();
+
+        scrollPanel = new ItemsScrollPanel(minecraft, width - MARGIN_RIGHT - MARGIN_LEFT, height - MARGIN_TOP - MARGIN_BOTTOM, MARGIN_TOP, MARGIN_LEFT);
+        // addWidget (not addRenderableWidget): this screen's own extractRenderState already calls
+        // scrollPanel.extractRenderState(...) explicitly further down, so it only needs to be
+        // registered for input/focus handling, not a second, automatic render pass too.
+        addWidget(scrollPanel);
+
+        saveButton = addRenderableWidget(Button.builder(Component.translatable("text.hudcompass.waypoint_editor.save"), (button) -> {
+            scrollPanel.saveAll();
+
+            List<PointAddRemoveEntry> added = toAdd.stream().map(i -> new PointAddRemoveEntry(i.worldItem.worldKey.identifier(), i.pointInfo)).toList();
+            List<PointAddRemoveEntry> updated = toUpdate.stream().map(i -> new PointAddRemoveEntry(i.worldItem.worldKey.identifier(), i.pointInfo)).toList();
+            List<UUID> removed = toRemove.stream().map(i -> i.pointInfo.getInternalId()).toList();
+
+            if (PointsOfInterest.INSTANCE.otherSideHasMod)
+            {
+                ClientPlayNetworking.send(UpdateWaypointsFromGui.of(added, updated, removed, minecraft.player.registryAccess()));
+            }
+            else
+            {
+                PointsOfInterest.INSTANCE.applyUpdatesFromGui(added, updated, removed);
+            }
+
+            onClose();
+        }).pos(8, height - 28).size(120, 20).build());
+        addRenderableWidget(Button.builder(Component.translatable("text.hudcompass.waypoint_editor.cancel"), (button) -> {
+            onClose();
+        }).pos(width - 128, height - 28).size(120, 20).build());
+
+        loadWaypoints();
+
+        scrollPanel.scrollTop();
+
+        saveButton.active = false;
+    }
+
+    @Override
+    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks)
+    {
+        this.extractMenuBackground(graphics, 0, scrollPanel.getTop(), width, scrollPanel.getHeight());
+        graphics.blit(RenderPipelines.GUI_TEXTURED, Screen.INWORLD_HEADER_SEPARATOR, 0, scrollPanel.getTop() - 2, 0.0F, 0.0F, width, 2, 32, 2);
+        graphics.blit(RenderPipelines.GUI_TEXTURED, Screen.INWORLD_FOOTER_SEPARATOR, 0, scrollPanel.getBottom(), 0.0F, 0.0F, width, 2, 32, 2);
+
+        scrollPanel.extractRenderState(graphics, mouseX, mouseY, partialTicks);
+
+        super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
+
+        graphics.centeredText(minecraft.font, title, width / 2, 7, 0xFFFFFFFF);
+
+        int nameWidth = Math.max(scrollPanel.getContentWidth() - (61 * 2 + 41 + 23 + 23 + 3), 50);
+        int x = scrollPanel.getLeft() + 6;
+        int y = scrollPanel.getTop() - 12;
+        graphics.text(minecraft.font, Component.translatable("text.hudcompass.waypoint_editor.header_label"), x, y, 0xFFFFFFFF, false);
+        x += nameWidth + 3;
+        graphics.text(minecraft.font, Component.translatable("text.hudcompass.waypoint_editor.header_x"), x, y, 0xFFFFFFFF, false);
+        x += 61;
+        graphics.text(minecraft.font, Component.translatable("text.hudcompass.waypoint_editor.header_y"), x, y, 0xFFFFFFFF, false);
+        x += 41;
+        graphics.text(minecraft.font, Component.translatable("text.hudcompass.waypoint_editor.header_z"), x, y, 0xFFFFFFFF, false);
+    }
+
+    private void createNewPoint(WorldListItem worldItem)
+    {
+        BasicWaypoint wp = new BasicWaypoint(getPlayerPositionScaled(worldItem), "", BasicIconData.mapDecoration("player_off_limits"));
+        WaypointListItem item = new WaypointListItem(minecraft, wp, worldItem);
+        int index = worldItem.waypoints.size() - 1;
+        ListItem after = index >= 0 ? worldItem.waypoints.get(index) : worldItem;
+        scrollPanel.insertAfter(item, after);
+        worldItem.addWaypoint(item);
+        toAdd.add(item);
+        scrollPanel.scrollToItem(item);
+        setDirty();
+    }
+
+    private Vec3 getPlayerPositionScaled(WorldListItem world)
+    {
+        LocalPlayer player = minecraft.player;
+        Vec3 pos = player.position();
+        if (player.level().dimension() == world.worldKey)
+        {
+            return pos;
+        }
+
+        if (player.level().dimension() == Level.NETHER && world.worldKey != Level.NETHER)
+        {
+            return new Vec3(pos.x * 8, pos.y, pos.z * 8);
+        }
+
+        if (player.level().dimension() != Level.NETHER && world.worldKey == Level.NETHER)
+        {
+            return new Vec3(pos.x / 8, pos.y, pos.z / 8);
+        }
+
+        return pos;
+    }
+
+    private WorldListItem addWorld(ResourceKey<Level> worldKey)
+    {
+        WorldListItem item = new WorldListItem(minecraft, worldKey);
+        scrollPanel.addItem(item);
+        return item;
+    }
+
+    private void addNewWaypointItem(WorldListItem item)
+    {
+        NewWaypointListItem newWaypoint = new NewWaypointListItem(minecraft, item);
+        item.setNewWaypoint(newWaypoint);
+        scrollPanel.addItem(newWaypoint);
+    }
+
+    private void addPoint(WorldListItem worldItem, BasicWaypoint wp)
+    {
+        WaypointListItem item = new WaypointListItem(minecraft, wp, worldItem);
+        worldItem.addWaypoint(item);
+        scrollPanel.addItem(item);
+    }
+
+    private void deletePoint(WaypointListItem item)
+    {
+        if (!toAdd.remove(item))
+            toRemove.add(item);
+        scrollPanel.removeItem(item);
+        item.worldItem.removeWaypoint(item);
+        setDirty();
+    }
+
+    private class WorldListItem extends CompositeListItem
+    {
+        private final Component title;
+        private final ResourceKey<Level> worldKey;
+        private final List<WaypointListItem> waypoints = Lists.newArrayList();
+        private boolean folded;
+        private NewWaypointListItem newWaypoint;
+
+        public void setNewWaypoint(NewWaypointListItem newWaypoint)
+        {
+            this.newWaypoint = newWaypoint;
+        }
+
+        public WorldListItem(Minecraft minecraft, ResourceKey<Level> key)
+        {
+            super(minecraft, 22);
+
+            this.title = Component.translatable("text.hudcompass.waypoint_editor.world", key.identifier().toString());
+            this.worldKey = key;
+        }
+
+        @Override
+        public void init()
+        {
+            super.init();
+
+            addWidget(Button.builder(Component.translatable("text.hudcompass.waypoint_editor.fold"), (button) -> {
+                folded = !folded;
+                if (folded)
+                {
+                    button.setMessage(Component.translatable("text.hudcompass.waypoint_editor.unfold"));
+                }
+                else
+                {
+                    button.setMessage(Component.translatable("text.hudcompass.waypoint_editor.fold"));
+                }
+                waypoints.forEach(w -> w.setVisible(!folded));
+                newWaypoint.setVisible(!folded);
+                scrollPanel.recalculateHeight();
+            }).pos(1, 1).size(20, 20).build());
+        }
+
+        @Override
+        public void render(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks)
+        {
+            super.render(graphics, mouseX, mouseY, partialTicks);
+
+            graphics.text(minecraft.font, title, 4 + 20, 10, 0xFFFFFFFF, false);
+        }
+
+        public void addWaypoint(WaypointListItem item)
+        {
+            this.waypoints.add(item);
+        }
+
+        public void removeWaypoint(WaypointListItem item)
+        {
+            this.waypoints.remove(item);
+        }
+    }
+
+    private class NewWaypointListItem extends CompositeListItem
+    {
+        final WorldListItem owner;
+
+        public NewWaypointListItem(Minecraft minecraft, WorldListItem owner)
+        {
+            super(minecraft, 24);
+
+            this.owner = owner;
+        }
+
+        @Override
+        public void init()
+        {
+            super.init();
+
+            addWidget(Button.builder(Component.translatable("text.hudcompass.waypoint_editor.new_waypoint"), (button) -> {
+                createNewPoint(owner);
+            }).pos(getWidth() - 121, 1).size(120, 20).build());
+        }
+    }
+
+    private class WaypointListItem extends CompositeListItem
+    {
+        private final BasicWaypoint pointInfo;
+        private final WorldListItem worldItem;
+        private EditBox label;
+        private EditBox xCoord;
+        private EditBox yCoord;
+        private EditBox zCoord;
+        private Button changeSymbol;
+        private Button delete;
+        private String labelText;
+        private String xText;
+        private String yText;
+        private String zText;
+
+        public WaypointListItem(Minecraft minecraft, BasicWaypoint pointInfo, WorldListItem worldItem)
+        {
+            super(minecraft, 22);
+
+            this.pointInfo = pointInfo;
+            this.worldItem = worldItem;
+        }
+
+        @Override
+        public void init()
+        {
+            super.init();
+
+            Vec3 pos = pointInfo.getPosition();
+
+            int nameWidth = Math.max(getWidth() - (61 * 2 + 41 + 23 + 23 + 3), 50);
+
+            int x = 2;
+            label = addWidget(new EditBox(minecraft.font, x + 1, 2, nameWidth, 16, Component.translatable("text.hudcompass.waypoint_editor.header_label")));
+            x += nameWidth + 3;
+            xCoord = addWidget(new EditBox(minecraft.font, x + 1, 2, 60, 16, Component.translatable("text.hudcompass.waypoint_editor.header_x")));
+            x += 61;
+            yCoord = addWidget(new EditBox(minecraft.font, x + 1, 2, 40, 16, Component.translatable("text.hudcompass.waypoint_editor.header_y")));
+            x += 41;
+            zCoord = addWidget(new EditBox(minecraft.font, x + 1, 2, 60, 16, Component.translatable("text.hudcompass.waypoint_editor.header_z")));
+            x += 63;
+            changeSymbol = addWidget(Button.builder(Component.translatable("text.hudcompass.waypoint_editor.change_symbol"), (button) -> {
+            }).pos(x, 0).size(20, 20).build());
+            x += 21;
+            delete = addWidget(Button.builder(Component.translatable("text.hudcompass.waypoint_editor.delete"), (button) -> {
+                deletePoint(this);
+            }).pos(x, 0).size(20, 20).build());
+
+            // Upstream never finished an icon picker either -- left disabled to match, not a gap
+            // introduced by this port.
+            changeSymbol.active = false;
+
+            label.setMaxLength(1024);
+
+            var labelComponent = pointInfo.getLabel();
+            label.setValue(labelComponent != null ? labelComponent.getString() : "");
+            xCoord.setValue(String.format(Locale.ROOT, "%1.2f", pos.x));
+            yCoord.setValue(String.format(Locale.ROOT, "%1.2f", pos.y));
+            zCoord.setValue(String.format(Locale.ROOT, "%1.2f", pos.z));
+
+            label.setResponder(str -> {
+                this.labelText = str != null ? str : "";
+                this.setDirty();
+            });
+            xCoord.setResponder(str -> {
+                this.xText = str != null ? str : "";
+                this.setDirty();
+            });
+            yCoord.setResponder(str -> {
+                this.yText = str != null ? str : "";
+                this.setDirty();
+            });
+            zCoord.setResponder(str -> {
+                this.zText = str != null ? str : "";
+                this.setDirty();
+            });
+        }
+
+        @Override
+        public void save()
+        {
+            if (isDirty())
+            {
+                labelText = label.getValue();
+                xText = xCoord.getValue();
+                yText = yCoord.getValue();
+                zText = zCoord.getValue();
+
+                if (COORD_FORMAT.asPredicate().test(xText) && COORD_FORMAT.asPredicate().test(yText) && COORD_FORMAT.asPredicate().test(zText))
+                {
+                    pointInfo.setLabel(labelText != null && !labelText.isEmpty() ? Component.literal(labelText) : null);
+                    pointInfo.setPosition(new Vec3(Double.parseDouble(xText), Double.parseDouble(yText), Double.parseDouble(zText)));
+                }
+
+                if (!toAdd.contains(this))
+                    toUpdate.add(this);
+            }
+        }
+    }
+
+    private static class CompositeListItem extends ListItem
+    {
+        private final List<AbstractWidget> renderables = Lists.newArrayList();
+
+        public CompositeListItem(Minecraft minecraft, int height)
+        {
+            super(minecraft, height);
+        }
+
+        @Override
+        public void init()
+        {
+            super.init();
+
+            renderables.clear();
+        }
+
+        public <T extends AbstractWidget> T addWidget(T widget)
+        {
+            renderables.add(widget);
+            return widget;
+        }
+
+        @Override
+        public List<? extends GuiEventListener> children()
+        {
+            return renderables;
+        }
+
+        private int getActualX(int mouseX)
+        {
+            int x = mouseX;
+            if (getParent() != null) x -= getParent().getLeft();
+            return x;
+        }
+
+        private double getActualX(double mouseX)
+        {
+            double x = mouseX;
+            if (getParent() != null) x -= getParent().getLeft();
+            return x;
+        }
+
+        private int getActualY(int mouseY)
+        {
+            int y = mouseY - getTop();
+            if (getParent() != null) y -= getParent().getContentTop();
+            return y;
+        }
+
+        private double getActualY(double mouseY)
+        {
+            double y = mouseY - getTop();
+            if (getParent() != null) y -= getParent().getContentTop();
+            return y;
+        }
+
+        @Override
+        public void render(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks)
+        {
+            if (!isVisible())
+                return;
+            int actualMouseX = getActualX(mouseX);
+            int actualMouseY = getActualY(mouseY);
+            if (actualMouseX >= 0 && actualMouseX < getWidth() && actualMouseY >= 0 && actualMouseY <= getHeight())
+            {
+                graphics.fill(0, 0, getWidth(), getHeight(), 0x1fFFFFFF);
+            }
+            for (AbstractWidget i : renderables)
+            {
+                i.extractRenderState(graphics, actualMouseX, actualMouseY, partialTicks);
+            }
+        }
+
+        @Override
+        public Optional<GuiEventListener> getChildAt(double mouseX, double mouseY)
+        {
+            if (!isVisible())
+                return Optional.empty();
+            double actualMouseX = getActualX(mouseX);
+            double actualMouseY = getActualY(mouseY);
+            for (GuiEventListener listener : this.children())
+            {
+                if (listener.isMouseOver(actualMouseX, actualMouseY))
+                {
+                    return Optional.of(listener);
+                }
+            }
+
+            return Optional.empty();
+        }
+
+        @Override
+        public boolean mouseClicked(MouseButtonEvent event, boolean isDoubleClick)
+        {
+            if (!isVisible())
+                return false;
+            double actualMouseX = getActualX(event.x());
+            double actualMouseY = getActualY(event.y());
+            for (GuiEventListener item : this.children())
+            {
+                if (item.mouseClicked(new MouseButtonEvent(actualMouseX, actualMouseY, event.buttonInfo()), isDoubleClick))
+                {
+                    this.setFocused(item);
+                    if (event.button() == InputConstants.MOUSE_BUTTON_LEFT)
+                    {
+                        this.setDragging(true);
+                    }
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        @Override
+        public boolean mouseReleased(MouseButtonEvent event)
+        {
+            if (!isVisible())
+                return false;
+            double actualMouseX = getActualX(event.x());
+            double actualMouseY = getActualY(event.y());
+            this.setDragging(false);
+            return this.getChildAt(event.x(), event.y())
+                    .filter((listener) -> listener.mouseReleased(new MouseButtonEvent(actualMouseX, actualMouseY, event.buttonInfo())))
+                    .isPresent();
+        }
+
+        @Override
+        public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY)
+        {
+            if (!isVisible())
+                return false;
+            double actualMouseX = getActualX(event.x());
+            double actualMouseY = getActualY(event.y());
+            return this.getFocused() != null && this.isDragging() && event.button() == InputConstants.MOUSE_BUTTON_LEFT
+                    && this.getFocused().mouseDragged(new MouseButtonEvent(actualMouseX, actualMouseY, event.buttonInfo()), dragX, dragY);
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double deltaX, double deltaY)
+        {
+            if (!isVisible())
+                return false;
+            double actualMouseX = getActualX(mouseX);
+            double actualMouseY = getActualY(mouseY);
+            return this.getChildAt(mouseX, mouseY)
+                    .filter((listener) -> listener.mouseScrolled(actualMouseX, actualMouseY, deltaX, deltaY))
+                    .isPresent();
+        }
+
+        @Override
+        public void setFocused(boolean focused)
+        {
+            if (!focused)
+            {
+                children().forEach(item -> item.setFocused(false));
+            }
+        }
+
+        @Override
+        public NarrationPriority narrationPriority()
+        {
+            return NarrationPriority.NONE;
+        }
+
+        @Override
+        public void updateNarration(NarrationElementOutput narrationElementOutput)
+        {
+            children().forEach(item ->
+            {
+                if (item instanceof NarratableEntry narratableEntry)
+                    narratableEntry.updateNarration(narrationElementOutput.nest());
+            });
+        }
+    }
+
+    private interface HierarchyParent
+    {
+        void recalculateHeight();
+
+        void setDirty();
+
+        int getLeft();
+
+        int getContentTop();
+
+        void focusChanged(GuiEventListener newFocus, ListItem itemParent);
+    }
+
+    private static abstract class ListItem implements ContainerEventHandler, NarratableEntry
+    {
+        protected final Minecraft minecraft;
+
+        @Nullable
+        private HierarchyParent parent;
+        private int height;
+        private int width;
+        private int top;
+        private boolean visible = true;
+
+        public ListItem(Minecraft minecraft, int height)
+        {
+            this.minecraft = minecraft;
+            this.height = height;
+        }
+
+        public int getTop()
+        {
+            return top;
+        }
+
+        public void setTop(int top)
+        {
+            this.top = top;
+        }
+
+        public int getHeight()
+        {
+            return height;
+        }
+
+        public void setHeight(int height)
+        {
+            this.height = height;
+            if (parent != null)
+                parent.recalculateHeight();
+        }
+
+        public int getWidth()
+        {
+            return width;
+        }
+
+        public void setWidth(int width)
+        {
+            this.width = width;
+        }
+
+        @Nullable
+        public HierarchyParent getParent()
+        {
+            return parent;
+        }
+
+        public void setParent(@Nullable HierarchyParent parent)
+        {
+            this.parent = parent;
+        }
+
+        public void init()
+        {
+        }
+
+        public abstract void render(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks);
+
+        public void save()
+        {
+        }
+
+        private boolean dirty;
+
+        protected boolean isDirty()
+        {
+            return dirty;
+        }
+
+        protected void setDirty()
+        {
+            dirty = true;
+            if (parent != null)
+                parent.setDirty();
+        }
+
+        public boolean isVisible()
+        {
+            return visible;
+        }
+
+        public void setVisible(boolean visible)
+        {
+            this.visible = visible;
+        }
+
+        @Nullable
+        private GuiEventListener focused;
+        private boolean isDragging;
+
+        @Override
+        public final boolean isDragging()
+        {
+            return this.isDragging;
+        }
+
+        @Override
+        public final void setDragging(boolean dragging)
+        {
+            this.isDragging = dragging;
+        }
+
+        @Override
+        @Nullable
+        public GuiEventListener getFocused()
+        {
+            return this.focused;
+        }
+
+        @Override
+        public void setFocused(@Nullable GuiEventListener newFocus)
+        {
+            if (parent != null)
+                parent.focusChanged(newFocus, this);
+
+            if (this.focused != null)
+            {
+                this.focused.setFocused(false);
+            }
+
+            if (newFocus != null)
+            {
+                newFocus.setFocused(true);
+            }
+
+            this.focused = newFocus;
+        }
+    }
+
+    private class ItemsScrollPanel extends ScrollPanel implements NarratableEntry, HierarchyParent
+    {
+        private final List<ListItem> items = Lists.newArrayList();
+
+        private int contentHeight;
+
+        public ItemsScrollPanel(Minecraft minecraft, int width, int height, int top, int left)
+        {
+            super(minecraft, width, height, top, left);
+        }
+
+        public void addItem(ListItem item)
+        {
+            addItem(items.size(), item);
+        }
+
+        public void insertAfter(WaypointListItem item, ListItem after)
+        {
+            int index = items.indexOf(after);
+            addItem(index >= 0 ? (index + 1) : items.size(), item);
+        }
+
+        public void addItem(int index, ListItem item)
+        {
+            items.add(index, item);
+            item.setParent(this);
+            recalculateHeight();
+            item.setWidth(getContentWidth());
+            item.init();
+        }
+
+        @Override
+        protected int getContentHeight()
+        {
+            return contentHeight;
+        }
+
+        @Override
+        protected void drawPanel(GuiGraphicsExtractor graphics, int entryRight, int relativeY, int mouseX, int mouseY)
+        {
+            var mStack = graphics.pose();
+            mStack.pushMatrix();
+            mStack.translate(left, relativeY);
+            for (ListItem item : items)
+            {
+                if (item.isVisible())
+                {
+                    mStack.pushMatrix();
+                    mStack.translate(0, item.getTop());
+                    item.render(graphics, mouseX, mouseY, 1.0F);
+                    mStack.popMatrix();
+                }
+            }
+            mStack.popMatrix();
+        }
+
+        @Override
+        public List<? extends GuiEventListener> children()
+        {
+            return items;
+        }
+
+        public void recalculateHeight()
+        {
+            int totalHeight = 0;
+            for (ListItem item : items)
+            {
+                if (item.isVisible())
+                {
+                    item.setTop(totalHeight);
+                    totalHeight += item.getHeight();
+                }
+            }
+            contentHeight = totalHeight;
+        }
+
+        public int getContentTop()
+        {
+            return this.top + border - (int) this.scrollDistance;
+        }
+
+        @Override
+        public void focusChanged(GuiEventListener newFocus, ListItem itemParent)
+        {
+            if (getFocused() != itemParent)
+            {
+                setFocused(itemParent);
+            }
+
+            this.bringIntoView(itemParent);
+        }
+
+        public void saveAll()
+        {
+            items.forEach(ListItem::save);
+        }
+
+        public int getContentWidth()
+        {
+            return right - left - 6;
+        }
+
+        public void removeItem(ListItem item)
+        {
+            item.setParent(null);
+            items.remove(item);
+            recalculateHeight();
+        }
+
+        public void bringIntoView(ListItem item)
+        {
+            if (item.getTop() < this.scrollDistance)
+            {
+                this.scrollDistance = Mth.clamp(item.getTop(), 0, Math.max(0, getContentHeight() - (height - border)));
+            }
+            else if ((item.getTop() + item.getHeight()) > (this.scrollDistance + this.height))
+            {
+                var scrollOffset = item.getTop() + item.getHeight() - this.height;
+                this.scrollDistance = Mth.clamp(scrollOffset, 0, Math.max(0, getContentHeight() - (height - border)));
+            }
+        }
+
+        public void scrollToItem(ListItem item)
+        {
+            int scrollOffset = item.getTop() - height / 2 - item.getHeight();
+            this.scrollDistance = Mth.clamp(scrollOffset, 0, Math.max(0, getContentHeight() - (height - border)));
+        }
+
+        @Override
+        public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks)
+        {
+            this.scrollDistance = Mth.clamp(scrollDistance, 0, Math.max(0, getContentHeight() - (height - border)));
+            super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
+        }
+
+        @Override
+        public boolean mouseClicked(MouseButtonEvent event, boolean isDoubleClick)
+        {
+            if (super.mouseClicked(event, isDoubleClick))
+                return true;
+
+            for (GuiEventListener item : this.children())
+            {
+                if (item.mouseClicked(event, isDoubleClick))
+                {
+                    if (event.button() == InputConstants.MOUSE_BUTTON_LEFT)
+                    {
+                        this.setDragging(true);
+                    }
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        @Override
+        public boolean mouseReleased(MouseButtonEvent event)
+        {
+            if (super.mouseReleased(event))
+                return true;
+
+            this.setDragging(false);
+            return this.getChildAt(event.x(), event.y())
+                    .filter((listener) -> listener.mouseReleased(event))
+                    .isPresent();
+        }
+
+        @Override
+        public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY)
+        {
+            if (super.mouseDragged(event, dragX, dragY))
+                return true;
+
+            return this.getFocused() != null
+                    && this.isDragging()
+                    && event.button() == InputConstants.MOUSE_BUTTON_LEFT
+                    && this.getFocused().mouseDragged(event, dragX, dragY);
+        }
+
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double deltaX, double deltaY)
+        {
+            if (super.mouseScrolled(mouseX, mouseY, deltaX, deltaY))
+                return true;
+
+            return this.getChildAt(mouseX, mouseY)
+                    .filter((listener) -> listener.mouseScrolled(mouseX, mouseY, deltaX, deltaY))
+                    .isPresent();
+        }
+
+        public void scrollTop()
+        {
+            scrollDistance = 0;
+        }
+
+        public void setDirty()
+        {
+            ClientWaypointManagerScreen.this.setDirty();
+        }
+
+        @Override
+        public NarrationPriority narrationPriority()
+        {
+            return NarrationPriority.NONE;
+        }
+
+        @Override
+        public void updateNarration(NarrationElementOutput narrationElementOutput)
+        {
+            items.forEach(item -> item.updateNarration(narrationElementOutput.nest()));
+        }
+    }
+}
