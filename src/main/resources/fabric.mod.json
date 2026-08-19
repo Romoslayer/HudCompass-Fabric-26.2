@@ -3,7 +3,7 @@
 	"id": "hudcompass",
 	"name": "${mod_name}",
 	"version": "${version}",
-	"description": "See where you go. A HUD compass overlay showing waypoints, the vanilla locator bar, and directions.",
+	"description": "Unofficial Fabric port of gigaherz's HudCompass, not affiliated with or endorsed by the original author. See where you go: a HUD compass overlay showing waypoints, the vanilla locator bar, and directions.",
 	"icon": "logo.png",
 	"license": "BSD-3-Clause",
 	"authors": [
@@ -13,9 +13,9 @@
 		"Romoslayer (Fabric 26.2 port)"
 	],
 	"contact": {
-		"homepage": "https://github.com/gigaherz/HudCompass",
-		"sources": "https://github.com/gigaherz/HudCompass",
-		"issues": "https://github.com/gigaherz/HudCompass/issues"
+		"homepage": "https://github.com/Romoslayer/HudCompass-Fabric-26.2",
+		"sources": "https://github.com/Romoslayer/HudCompass-Fabric-26.2",
+		"issues": "https://github.com/Romoslayer/HudCompass-Fabric-26.2/issues"
 	},
 
 	"environment": "*",
