@@ -7,3 +7,14 @@ accessWidener v2 official
 # transformer, guessed one that doesn't exist -- corrected after checking the actual class).
 accessible field net/minecraft/world/level/saveddata/maps/MapItemSavedData bannerMarkers Ljava/util/Map;
 accessible field net/minecraft/world/level/saveddata/maps/MapItemSavedData decorations Ljava/util/Map;
+
+# For HudOverlay's blitRaw/fillRect: restores upstream's true sub-pixel-precision GUI rendering
+# (a custom GuiElementRenderState submitted directly), which MC 26.2's GuiGraphicsExtractor no
+# longer exposes a direct submitGuiElementRenderState()/peekScissorStack() method pair for (both
+# confirmed absent via javap) -- the same underlying submission points still exist one layer down,
+# reached via these two otherwise-private fields. GuiGraphicsExtractor$ScissorStack itself is also
+# package-private (not just its field) -- widened too so ScissorStack#peek()'s return value can
+# actually be used from unrelated code, not just referenced via `var` inference.
+accessible field net/minecraft/client/gui/GuiGraphicsExtractor guiRenderState Lnet/minecraft/client/renderer/state/gui/GuiRenderState;
+accessible field net/minecraft/client/gui/GuiGraphicsExtractor scissorStack Lnet/minecraft/client/gui/GuiGraphicsExtractor$ScissorStack;
+accessible class net/minecraft/client/gui/GuiGraphicsExtractor$ScissorStack

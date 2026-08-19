@@ -1,6 +1,11 @@
 package dev.gigaherz.hudcompass.client;
 
 import com.google.common.collect.Lists;
+import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.textures.FilterMode;
+import com.mojang.blaze3d.textures.GpuTextureView;
+import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.gigaherz.hudcompass.ConfigData;
 import dev.gigaherz.hudcompass.HudCompass;
 import dev.gigaherz.hudcompass.waypoints.PointInfo;
@@ -10,7 +15,10 @@ import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
+import net.minecraft.client.gui.render.TextureSetup;
 import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.state.gui.GuiElementRenderState;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.renderer.texture.TextureManager;
 import net.minecraft.core.registries.Registries;
@@ -26,6 +34,8 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.Nullable;
+import org.joml.Matrix3x2f;
 
 import java.util.List;
 
@@ -335,9 +345,12 @@ public class HudOverlay
     public static void drawSprite(GuiGraphicsExtractor graphics, TextureAtlasSprite sprite,
                                    float x, float x2, float y, float y2, float r, float g, float b, float a)
     {
-        int color = ARGB.colorFromFloat(a, r, g, b);
-        graphics.blitSprite(RenderPipelines.GUI_TEXTURED, sprite,
-                Math.round(x), Math.round(y), Math.round(x2 - x), Math.round(y2 - y), color);
+        blitRaw(graphics,
+                sprite.atlasLocation(),
+                x, x2, y, y2,
+                sprite.getU0(), sprite.getV0(),
+                sprite.getU1(), sprite.getV1(),
+                r, g, b, a);
     }
 
     private float angleDistance(float yaw, float other)
@@ -354,21 +367,104 @@ public class HudOverlay
     }
 
     /**
-     * Raw pixel-region blit (used for player-face icons -- a sub-rectangle of a skin texture,
-     * not a whole {@code TextureAtlasSprite}). {@code u}/{@code v} are pixel offsets into the
-     * texture, matching {@code texWidth}/{@code texHeight}.
+     * True sub-pixel-precision blit, matching upstream's original implementation almost verbatim
+     * (including its own {@code u0,u1,v0,v1} constructor-argument shuffle inside
+     * {@code BlitRenderStateF}'s convenience constructor below -- left exactly as upstream has it,
+     * not "cleaned up", since the goal here is 1:1 fidelity, not a rewrite).
+     * <p>
+     * MC 26.2's {@code GuiGraphicsExtractor} has no direct {@code submitGuiElementRenderState}/
+     * {@code peekScissorStack} methods the way the 26.1.2 API upstream targets does (confirmed via
+     * javap against the real jar) -- but the same underlying submission point still exists, just
+     * one layer down: {@code GuiRenderState#addGuiElement(GuiElementRenderState)}, reached via the
+     * {@code guiRenderState} field (private, access-widened -- see {@code hudcompass.accesswidener}).
+     * Likewise, {@code peekScissorStack()} is now {@code ScissorStack#peek()}, reached via the
+     * {@code scissorStack} field (also widened). Everything else -- the actual vertex/UV math --
+     * is unchanged from upstream.
      */
     public static void blitRaw(
             GuiGraphicsExtractor graphics,
-            Identifier textureLocation,
+            Identifier pAtlasLocation,
             float x0, float x1, float y0, float y1,
-            float u, float v,
-            int texWidth, int texHeight
+            float u0, float u1, float v0, float v1,
+            float r, float g, float b, float a
     )
     {
-        graphics.blit(RenderPipelines.GUI_TEXTURED, textureLocation,
-                Math.round(x0), Math.round(y0), u, v,
-                Math.round(x1 - x0), Math.round(y1 - y0), texWidth, texHeight);
+        int color = ARGB.colorFromFloat(a, r, g, b);
+        GpuTextureView gputextureview = Minecraft.getInstance().getTextureManager().getTexture(pAtlasLocation).getTextureView();
+        graphics.guiRenderState.addGuiElement(
+                new BlitRenderStateF(
+                        RenderPipelines.GUI_TEXTURED,
+                        TextureSetup.singleTexture(gputextureview, RenderSystem.getSamplerCache().getRepeat(FilterMode.NEAREST)),
+                        new Matrix3x2f(graphics.pose()),
+                        x0, y0,
+                        x1, y1,
+                        u0, v0,
+                        u1, v1,
+                        color,
+                        graphics.scissorStack.peek()
+                )
+        );
+    }
+
+    public record BlitRenderStateF(
+            RenderPipeline pipeline,
+            TextureSetup textureSetup,
+            Matrix3x2f pose,
+            float x0, float y0,
+            float x1, float y1,
+            float u0, float v0,
+            float u1, float v1,
+            int color,
+            @Nullable ScreenRectangle scissorArea,
+            @Nullable ScreenRectangle bounds
+    ) implements GuiElementRenderState
+    {
+        public BlitRenderStateF(
+                RenderPipeline pipeline,
+                TextureSetup textureSetup,
+                Matrix3x2f pose,
+                float x0, float y0,
+                float x1, float y1,
+                float u0, float v0,
+                float u1, float v1,
+                int color,
+                @Nullable ScreenRectangle bounds
+        )
+        {
+            this(
+                    pipeline,
+                    textureSetup,
+                    pose,
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    u0,
+                    u1, v0,
+                    v1,
+                    color,
+                    bounds,
+                    getBounds(x0, y0, x1, y1, pose, bounds)
+            );
+        }
+
+        @Override
+        public void buildVertices(VertexConsumer consumer)
+        {
+            consumer.addVertexWith2DPose(this.pose(), this.x0(), this.y0()).setUv(this.u0(), this.v0()).setColor(this.color());
+            consumer.addVertexWith2DPose(this.pose(), this.x0(), this.y1()).setUv(this.u0(), this.v1()).setColor(this.color());
+            consumer.addVertexWith2DPose(this.pose(), this.x1(), this.y1()).setUv(this.u1(), this.v1()).setColor(this.color());
+            consumer.addVertexWith2DPose(this.pose(), this.x1(), this.y0()).setUv(this.u1(), this.v0()).setColor(this.color());
+        }
+
+        @Nullable
+        private static ScreenRectangle getBounds(
+                float x0, float y0, float x1, float y1, Matrix3x2f pose, @Nullable ScreenRectangle rect
+        )
+        {
+            ScreenRectangle screenrectangle = new ScreenRectangle(Mth.floor(x0), Mth.floor(y0), Mth.ceil(x1 - x0), Mth.ceil(y1 - y0)).transformMaxBounds(pose);
+            return rect != null ? rect.intersection(screenrectangle) : screenrectangle;
+        }
     }
 
     public static void fillRect(
@@ -378,6 +474,76 @@ public class HudOverlay
             int color
     )
     {
-        graphics.fill(Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1), color);
+        graphics.guiRenderState.addGuiElement(
+                new FillRenderStateF(
+                        RenderPipelines.GUI,
+                        TextureSetup.noTexture(),
+                        new Matrix3x2f(graphics.pose()),
+                        x0,
+                        y0,
+                        x1,
+                        y1,
+                        color,
+                        graphics.scissorStack.peek()
+                )
+        );
+    }
+
+    public record FillRenderStateF(
+            RenderPipeline pipeline,
+            TextureSetup textureSetup,
+            Matrix3x2f pose,
+            float x0,
+            float y0,
+            float x1,
+            float y1,
+            int color,
+            @Nullable ScreenRectangle scissorArea,
+            @Nullable ScreenRectangle bounds
+    ) implements GuiElementRenderState
+    {
+        public FillRenderStateF(
+                RenderPipeline pipeline,
+                TextureSetup textureSetup,
+                Matrix3x2f pose,
+                float x0,
+                float y0,
+                float x1,
+                float y1,
+                int color,
+                @Nullable ScreenRectangle bounds
+        )
+        {
+            this(
+                    pipeline,
+                    textureSetup,
+                    pose,
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    color,
+                    bounds,
+                    getBounds(x0, y0, x1, y1, pose, bounds)
+            );
+        }
+
+        @Override
+        public void buildVertices(VertexConsumer consumer)
+        {
+            consumer.addVertexWith2DPose(this.pose(), this.x0(), this.y0()).setColor(this.color());
+            consumer.addVertexWith2DPose(this.pose(), this.x0(), this.y1()).setColor(this.color());
+            consumer.addVertexWith2DPose(this.pose(), this.x1(), this.y1()).setColor(this.color());
+            consumer.addVertexWith2DPose(this.pose(), this.x1(), this.y0()).setColor(this.color());
+        }
+
+        @Nullable
+        private static ScreenRectangle getBounds(
+                float x0, float y0, float x1, float y1, Matrix3x2f pose, @Nullable ScreenRectangle rect
+        )
+        {
+            ScreenRectangle screenrectangle = new ScreenRectangle(Mth.floor(x0), Mth.floor(y0), Mth.ceil(x1 - x0), Mth.ceil(y1 - y0)).transformMaxBounds(pose);
+            return rect != null ? rect.intersection(screenrectangle) : screenrectangle;
+        }
     }
 }

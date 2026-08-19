@@ -32,6 +32,11 @@ public class PlayerFaceRenderer
 
     private static void drawFaceLayer(GuiGraphicsExtractor graphics, Identifier tex, float x1, float y1, float w, float h, int tx)
     {
-        HudOverlay.blitRaw(graphics, tex, x1, x1 + w, y1, y1 + h, tx, 8, 64, 64);
+        var x2 = x1 + w;
+        var y2 = y1 + h;
+        var u1 = tx / 64f;
+        var u2 = (tx + 8) / 64f;
+
+        HudOverlay.blitRaw(graphics, tex, x1, x2, y1, y2, u1, 8 / 64f, u2, 16 / 64f, 1, 1, 1, 1);
     }
 }
