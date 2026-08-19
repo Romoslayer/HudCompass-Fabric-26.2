@@ -163,7 +163,7 @@ public class HudCompassJourneymapPlugin implements IClientPlugin
                     continue;
 
                 current.add(id);
-                worldPoints.addPoint(new JmWaypoint(jmwp, id));
+                upsert(worldPoints, id, jmwp);
             }
 
             tracked.removeIf(id -> {
@@ -244,15 +244,31 @@ public class HudCompassJourneymapPlugin implements IClientPlugin
             case DELETED -> worldPoints.removePoint(id);
             case CREATE, READ -> {
                 if (visible)
-                    worldPoints.addPoint(new JmWaypoint(jmwp, id));
+                    upsert(worldPoints, id, jmwp);
             }
             case UPDATE -> {
                 if (visible)
-                    worldPoints.addPoint(new JmWaypoint(jmwp, id));
+                    upsert(worldPoints, id, jmwp);
                 else
                     worldPoints.removePoint(id);
             }
         }
+    }
+
+    /**
+     * Updates the existing {@link JmWaypoint} in place when one's already tracked under this id,
+     * rather than replacing it with a freshly-constructed one -- see this class's own javadoc for
+     * why: a fresh object resets {@link PointInfo#fade}, restarting the label fade-in animation,
+     * which made every already-visible waypoint's label visibly blink on each reconciliation pass
+     * (every second) even though nothing about it had actually changed.
+     */
+    private static void upsert(PointsOfInterest.WorldPoints worldPoints, UUID id, Waypoint jmwp)
+    {
+        var existing = worldPoints.find(id);
+        if (existing.isPresent() && existing.get() instanceof JmWaypoint jm)
+            jm.update(jmwp);
+        else
+            worldPoints.addPoint(new JmWaypoint(jmwp, id));
     }
 
     private static boolean isVisible(Waypoint jmwp, ResourceKey<Level> dimension)
@@ -273,7 +289,7 @@ public class HudCompassJourneymapPlugin implements IClientPlugin
 
     public static class JmWaypoint extends PointInfo<JmWaypoint>
     {
-        private final Vec3 position;
+        private Vec3 position;
 
         JmWaypoint(Waypoint jmwp, UUID id)
         {
@@ -282,6 +298,19 @@ public class HudCompassJourneymapPlugin implements IClientPlugin
             setInternalId(id);
             // handleWaypointEvent already checked getBlockPos() != null before constructing this.
             this.position = Vec3.atCenterOf(jmwp.getBlockPos());
+        }
+
+        /**
+         * Refreshes this already-tracked waypoint's label/position/icon from JourneyMap's current
+         * state, in place -- deliberately not a new object, so {@link #fade} (the label animation
+         * state) survives across reconciliation passes. See {@link HudCompassJourneymapPlugin#upsert}.
+         */
+        void update(Waypoint jmwp)
+        {
+            setLabel(Component.literal(jmwp.getName() != null ? jmwp.getName() : ""));
+            if (jmwp.getBlockPos() != null)
+                position = Vec3.atCenterOf(jmwp.getBlockPos());
+            setIconData(coloredIcon(jmwp));
         }
 
         private static BasicIconData coloredIcon(Waypoint jmwp)
