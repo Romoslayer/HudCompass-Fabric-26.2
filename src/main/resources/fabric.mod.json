@@ -10,7 +10,7 @@
 		"gigaherz"
 	],
 	"contributors": [
-		"Romoslayer (Fabric 26.2 port)"
+		"Romoslayer (Fabric 26.2 port, 26.3 update)"
 	],
 	"contact": {
 		"homepage": "https://github.com/Romoslayer/HudCompass-Fabric-26.2",
@@ -34,9 +34,9 @@
 		]
 	},
 	"depends": {
-		"fabricloader": ">=0.19.0",
+		"fabricloader": ">=0.19.5",
 		"fabric-api": "*",
-		"minecraft": "~26.2",
+		"minecraft": "~26.3",
 		"java": ">=25"
 	},
 	"suggests": {

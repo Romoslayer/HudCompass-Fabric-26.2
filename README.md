@@ -3,10 +3,10 @@
 A HUD compass overlay that shows waypoints, cardinal directions, and (via the vanilla locator
 bar) death markers and other tracked waypoints — "see where you go."
 
-This is an **unofficial Fabric port for Minecraft 26.2** of
+This is an **unofficial Fabric port for Minecraft 26.3** (originally ported for 26.2) of
 [gigaherz's HudCompass](https://github.com/gigaherz/HudCompass), originally written for NeoForge.
 All credit for the original design, art, and waypoint/icon architecture belongs to the original
-author; this port adapts it to run on the Fabric loader and against MC 26.2's APIs.
+author; this port adapts it to run on the Fabric loader and against MC 26.3's APIs.
 
 > **Disclaimer:** This is a community port, not the original mod. It is **not affiliated with,
 > endorsed by, supported by, or maintained by** gigaherz (David Quintana) or the upstream
@@ -42,4 +42,4 @@ Copyright (c) 2020, David Quintana (gigaherz).
 ## Credits
 
 - **gigaherz** (David Quintana) — original mod
-- **Romoslayer** — Fabric 26.2 port
+- **Romoslayer** — Fabric 26.2 port, 26.3 update
