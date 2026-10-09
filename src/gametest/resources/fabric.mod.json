@@ -1,0 +1,15 @@
+{
+	"schemaVersion": 1,
+	"id": "hudcompass-test",
+	"version": "1.0.0",
+	"name": "HUD Compass Test Harness",
+	"environment": "*",
+	"entrypoints": {
+		"fabric-gametest": [
+			"dev.gigaherz.hudcompass.test.HudCompassGameTests"
+		]
+	},
+	"depends": {
+		"hudcompass": "*"
+	}
+}

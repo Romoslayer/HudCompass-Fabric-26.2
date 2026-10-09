@@ -1,3 +1,5 @@
+import net.fabricmc.loom.task.prod.ServerProductionRunTask
+
 plugins {
     id 'java-library'
     id 'eclipse'
@@ -127,4 +129,50 @@ idea {
         downloadSources = true
         downloadJavadoc = true
     }
+}
+
+// Automated in-game checks: gradlew runGameTest (a headless GameTest server, see src/gametest),
+// and gradlew runProductionGameTest (the built jar in a normal Fabric server install). Same suite
+// as the mc1.21.1 / mc1.20.1 branches, on 26.x's annotation-based GameTest API; each test has its
+// own test environment (src/gametest/resources/data/hudcompass-test/test_environment) so tests that
+// add players or change config run in separate batches instead of in parallel.
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = 'hudcompass-test'
+        enableGameTests = true
+        enableClientGameTests = false
+    }
+}
+
+// Every run starts from a brand-new world.
+tasks.register('deleteGameTestWorld', Delete) {
+    delete layout.buildDirectory.dir('run/gameTest/world')
+}
+tasks.named('runGameTest') {
+    dependsOn 'deleteGameTestWorld'
+}
+
+dependencies {
+    productionRuntimeMods "net.fabricmc.fabric-api:fabric-api:${fabric_version}+${mc_version}"
+}
+
+// 26.x ships unobfuscated, so unlike the 1.21.1 / 1.20.1 branches the test classes need no remap.
+tasks.register('gametestJar', Jar) {
+    from sourceSets.gametest.output
+    archiveClassifier = 'gametest'
+}
+
+tasks.register('deleteProductionGameTestRunDir', Delete) {
+    delete layout.buildDirectory.dir('run/productionGameTest')
+}
+
+tasks.register('runProductionGameTest', ServerProductionRunTask) {
+    group = 'verification'
+    description = 'Runs the in-game tests against the built jar in a normal Fabric server install.'
+    dependsOn 'deleteProductionGameTestRunDir'
+    mustRunAfter 'runGameTest'
+    mods.from(tasks.named('gametestJar'))
+    jvmArgs.add('-Dfabric-api.gametest')
+    runDir = layout.buildDirectory.dir('run/productionGameTest')
 }
