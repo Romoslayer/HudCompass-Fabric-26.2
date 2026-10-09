@@ -7,12 +7,12 @@ import dev.gigaherz.hudcompass.HudCompass;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 
 public class BasicIconData implements IIconData<BasicIconData>
 {
     public static final MapCodec<BasicIconData> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
-                    Identifier.CODEC.fieldOf("sprite").forGetter(e -> e.spriteName),
+                    ResourceLocation.CODEC.fieldOf("sprite").forGetter(e -> e.spriteName),
                     Codec.FLOAT.fieldOf("r").forGetter(e -> e.r),
                     Codec.FLOAT.fieldOf("g").forGetter(e -> e.g),
                     Codec.FLOAT.fieldOf("b").forGetter(e -> e.b),
@@ -20,7 +20,7 @@ public class BasicIconData implements IIconData<BasicIconData>
             ).apply(instance, BasicIconData::new));
 
     public static final StreamCodec<RegistryFriendlyByteBuf, BasicIconData> STREAM_CODEC = StreamCodec.composite(
-            Identifier.STREAM_CODEC, e -> e.spriteName,
+            ResourceLocation.STREAM_CODEC, e -> e.spriteName,
             ByteBufCodecs.FLOAT, e -> e.r,
             ByteBufCodecs.FLOAT, e -> e.g,
             ByteBufCodecs.FLOAT, e -> e.b,
@@ -40,26 +40,26 @@ public class BasicIconData implements IIconData<BasicIconData>
 
     public static BasicIconData mapDecoration(String spriteName)
     {
-        return new BasicIconData(Identifier.parse(spriteName));
+        return new BasicIconData(ResourceLocation.parse(spriteName));
     }
 
-    public static BasicIconData basic(Identifier spriteName)
+    public static BasicIconData basic(ResourceLocation spriteName)
     {
         return new BasicIconData(spriteName);
     }
 
-    public final Identifier spriteName;
+    public final ResourceLocation spriteName;
     public final float r;
     public final float g;
     public final float b;
     public final float a;
 
-    public BasicIconData(Identifier spriteName)
+    public BasicIconData(ResourceLocation spriteName)
     {
         this(spriteName, 1, 1, 1, 1);
     }
 
-    public BasicIconData(Identifier spriteName, float r, float g, float b, float a)
+    public BasicIconData(ResourceLocation spriteName, float r, float g, float b, float a)
     {
         this.spriteName = spriteName;
         this.r = r;

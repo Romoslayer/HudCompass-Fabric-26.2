@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.gigaherz.hudcompass.test.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "SmokeTestMouseHandlerMixin",
+    "SmokeTestWindowMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

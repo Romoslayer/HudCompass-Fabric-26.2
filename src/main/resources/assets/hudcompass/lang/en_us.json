@@ -45,13 +45,6 @@
   "config.hudcompass.waypointFadeDistance.tooltip": "The distance at which waypoints start to fade. Meaningless if Waypoint View Distance is 0. If this value is greater than or equal to that, waypoints will never fade.",
   "config.hudcompass.waypointViewDistance": "Waypoint View Distance",
   "config.hudcompass.waypointViewDistance.tooltip": "The distance at which waypoints stop drawing. If set to 0, waypoints will never disappear.",
-  "config.hudcompass.showLocatorBarWaypoints": "Show Locator Bar Waypoints",
-  "config.hudcompass.showLocatorBarWaypoints.tooltip": "If disabled, icons from the vanilla locator bar will not be shown on the compass.",
-  "config.hudcompass.disableLocatorBarWhen": "Disable Locator Bar When",
-  "config.hudcompass.disableLocatorBarWhen.tooltip": "Choose when the vanilla locator bar is hidden.",
-  "config.hudcompass.disableLocatorBarWhen.value.NEVER": "Never",
-  "config.hudcompass.disableLocatorBarWhen.value.WHEN_VISIBLE": "When Compass Visible",
-  "config.hudcompass.disableLocatorBarWhen.value.ALWAYS": "Always",
 
   "config.hudcompass.enableVanillaMapIntegration": "Vanilla Map Integration",
   "config.hudcompass.enableVanillaMapIntegration.tooltip": "If disabled, vanilla map banner/decoration waypoints won't be displayed on the compass.",

@@ -9,7 +9,7 @@ import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,7 +28,7 @@ import java.util.UUID;
  */
 public record UpdateWaypointsFromGui(byte[] bytes) implements CustomPacketPayload
 {
-    public static final Identifier ID = HudCompass.location("update_waypoints_from_gui");
+    public static final ResourceLocation ID = HudCompass.location("update_waypoints_from_gui");
     public static final Type<UpdateWaypointsFromGui> TYPE = new Type<>(ID);
 
     public static final StreamCodec<ByteBuf, UpdateWaypointsFromGui> STREAM_CODEC = StreamCodec.composite(

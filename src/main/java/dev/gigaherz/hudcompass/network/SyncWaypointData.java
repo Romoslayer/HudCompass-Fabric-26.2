@@ -9,7 +9,7 @@ import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 
 /** Sent server -> client: a full snapshot of that player's server-authoritative waypoint state. */
 public record SyncWaypointData(byte[] bytes) implements CustomPacketPayload
@@ -19,7 +19,7 @@ public record SyncWaypointData(byte[] bytes) implements CustomPacketPayload
             SyncWaypointData::new
     );
 
-    public static final Identifier ID = HudCompass.location("sync_waypoint_data");
+    public static final ResourceLocation ID = HudCompass.location("sync_waypoint_data");
     public static final Type<SyncWaypointData> TYPE = new Type<>(ID);
 
     @Override

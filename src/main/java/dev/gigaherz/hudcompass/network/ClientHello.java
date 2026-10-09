@@ -4,7 +4,7 @@ import dev.gigaherz.hudcompass.HudCompass;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Sent client -> server in reply to {@link ServerHello}, confirming the client also has the mod
@@ -14,7 +14,7 @@ public record ClientHello() implements CustomPacketPayload
 {
     public static final ClientHello INSTANCE = new ClientHello();
 
-    public static final Identifier ID = HudCompass.location("client_hello");
+    public static final ResourceLocation ID = HudCompass.location("client_hello");
     public static final Type<ClientHello> TYPE = new Type<>(ID);
 
     public static final StreamCodec<ByteBuf, ClientHello> STREAM_CODEC = StreamCodec.unit(INSTANCE);

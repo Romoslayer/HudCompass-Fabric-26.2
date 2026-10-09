@@ -19,7 +19,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.ComponentSerialization;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
@@ -50,7 +50,7 @@ import java.util.UUID;
  */
 public class VanillaMapPoints
 {
-    private static final Identifier ADDON_ID = HudCompass.location("vanilla_map");
+    private static final ResourceLocation ADDON_ID = HudCompass.location("vanilla_map");
 
     public static final PointInfoType<MapDecorationWaypoint> DECORATION_TYPE =
             PointInfoType.register("map_decoration", MapDecorationWaypoint.CODEC, MapDecorationWaypoint.STREAM_CODEC);
@@ -185,7 +185,7 @@ public class VanillaMapPoints
                 ByteBufCodecs.optional(ComponentSerialization.STREAM_CODEC), e -> Optional.ofNullable(e.getLabel()),
                 ByteBufCodecs.BOOL, e -> e.displayVerticalDistance(null),
                 IIconData.DISPATCH_STREAM_CODEC, MapBannerWaypoint::getIconData,
-                Vec3.STREAM_CODEC, MapBannerWaypoint::getPosition,
+                VEC3_STREAM_CODEC, MapBannerWaypoint::getPosition,
                 MapBannerWaypoint::new
         );
 
@@ -228,7 +228,7 @@ public class VanillaMapPoints
                 ByteBufCodecs.optional(ComponentSerialization.STREAM_CODEC), e -> Optional.ofNullable(e.getLabel()),
                 ByteBufCodecs.BOOL, e -> e.displayVerticalDistance(null),
                 IIconData.DISPATCH_STREAM_CODEC, MapDecorationWaypoint::getIconData,
-                Vec3.STREAM_CODEC, MapDecorationWaypoint::getPosition,
+                VEC3_STREAM_CODEC, MapDecorationWaypoint::getPosition,
                 MapDecorationWaypoint::new
         );
 

@@ -1,11 +1,12 @@
 package dev.gigaherz.hudcompass.client;
 
 import com.google.common.collect.Lists;
-import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.textures.FilterMode;
-import com.mojang.blaze3d.textures.GpuTextureView;
-import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.BufferUploader;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.blaze3d.vertex.VertexFormat;
 import dev.gigaherz.hudcompass.ConfigData;
 import dev.gigaherz.hudcompass.HudCompass;
 import dev.gigaherz.hudcompass.waypoints.PointInfo;
@@ -14,19 +15,15 @@ import dev.gigaherz.hudcompass.waypoints.client.PointRenderer;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.navigation.ScreenRectangle;
-import net.minecraft.client.gui.render.TextureSetup;
-import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.client.renderer.state.gui.GuiElementRenderState;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.renderer.texture.TextureManager;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.data.AtlasIds;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.TagKey;
-import net.minecraft.util.ARGB;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Inventory;
@@ -34,28 +31,28 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
-import org.jetbrains.annotations.Nullable;
-import org.joml.Matrix3x2f;
+import org.joml.Matrix4f;
 
 import java.util.List;
 
 /**
  * The compass HUD overlay itself. Ported from upstream's NeoForge {@code GuiLayer}
- * implementation -- the actual drawing code (fillRect/blitRaw) is vanilla Mojang API and carried
- * over close to verbatim, registered via Fabric API's HUD rendering hook in
- * {@link ClientHandler}.
+ * implementation, registered via Fabric API's {@code HudRenderCallback} in {@link ClientHandler}.
  * <p>
- * Upstream's NeoForge version additionally hooked {@code RegisterGuiLayersEvent} +
- * Pre/Post events on the boss-overlay layer to push the boss health bar down by 28px, making
- * room above it for the compass. That boss-bar-avoidance trick IS ported, in {@link ClientHandler}
- * -- Fabric's equivalent turned out to be {@code HudElementRegistry.replaceElement}, which hands
- * you the original {@code HudElement} to wrap rather than firing separate Pre/Post events for a
- * named layer, but achieves the identical effect (translate the pose stack by (0, 28) around the
- * original boss bar's own render call, only while {@link #canRender()} is true).
- * <p>
- * NOTE: {@code Options.hideGui} (the F1 hide-HUD toggle) has no accessible replacement in MC
- * 26.2 (checked Options/Minecraft/Gui/Hud) -- the compass will keep rendering when the vanilla
- * HUD is hidden with F1. Known/accepted gap, same as encountered porting Dynamic Surroundings.
+ * 1.21.1 backport notes, versus the 26.x build this was ported down from:
+ * <ul>
+ *     <li>{@link #fillRect} and {@link #blitRaw} draw immediate-mode quads through the
+ *     {@code Tesselator}, the way upstream's own 1.21.1 branch does. 1.21.1 has no GUI
+ *     render-state system to submit custom elements to (that arrived in 1.21.6), but this keeps
+ *     the same true sub-pixel float positioning the 26.x build's custom render states give.</li>
+ *     <li>The boss-bar push-down lives in {@code BossHealthOverlayMixin}, not a
+ *     {@code HudElementRegistry.replaceElement} wrapper -- 1.21.1's Fabric API has no HUD layer
+ *     registry.</li>
+ *     <li>The F1 hide-HUD toggle is honoured here ({@link #canRender()}), which the 26.x build
+ *     can't do: {@code Options.hideGui} is still public on 1.21.1, and Fabric's
+ *     {@code HudRenderCallback} fires after vanilla's layered HUD draw, whose layers each check
+ *     it themselves, so this callback would otherwise keep drawing under F1.</li>
+ * </ul>
  */
 public class HudOverlay
 {
@@ -72,7 +69,7 @@ public class HudOverlay
         this.textureManager = mc.getTextureManager();
     }
 
-    public void render(GuiGraphicsExtractor graphics, DeltaTracker _partialTicks)
+    public void render(GuiGraphics graphics, DeltaTracker _partialTicks)
     {
         if (!canRender()) return;
 
@@ -81,7 +78,7 @@ public class HudOverlay
         renderCompass(graphics, _partialTicks);
     }
 
-    private void renderCompass(GuiGraphicsExtractor graphics, DeltaTracker _partialTicks)
+    private void renderCompass(GuiGraphics graphics, DeltaTracker _partialTicks)
     {
         boolean isPaused = mc.isPaused();
 
@@ -136,6 +133,9 @@ public class HudOverlay
     {
         if (mc.player == null) return false;
 
+        if (mc.options.hideGui)
+            return false;
+
         if (mc.options.keyPlayerList.isDown())
             return false;
 
@@ -148,7 +148,7 @@ public class HudOverlay
         };
     }
 
-    private static final TagKey<Item> MAKES_HUDCOMPASS_VISIBLE = TagKey.create(Registries.ITEM, Identifier.fromNamespaceAndPath("hudcompass", "makes_hudcompass_visible"));
+    private static final TagKey<Item> MAKES_HUDCOMPASS_VISIBLE = TagKey.create(Registries.ITEM, ResourceLocation.fromNamespaceAndPath("hudcompass", "makes_hudcompass_visible"));
 
     private boolean findCompassInHands()
     {
@@ -179,7 +179,7 @@ public class HudOverlay
         return new Vec2((float) Math.toDegrees(-Math.atan2(xd, zd)), (float) yd);
     }
 
-    private void drawCardinalDirection(GuiGraphicsExtractor graphics, float yaw, float angle, int xPos, String text)
+    private void drawCardinalDirection(GuiGraphics graphics, float yaw, float angle, int xPos, String text)
     {
         float nDist = angleDistance(yaw, angle);
         if (Math.abs(nDist) <= 90)
@@ -193,7 +193,10 @@ public class HudOverlay
         }
     }
 
-    public void drawCenteredShadowString(GuiGraphicsExtractor graphics, Font font, String text, float x, float y, int color)
+    // GuiGraphics#drawString only takes int coordinates on 1.21.1 (NeoForge patches in a float
+    // overload, which is what upstream's own 1.21.1 branch relies on -- vanilla/Fabric don't have
+    // it), so the fractional part is applied as a pose translation around an int-positioned draw.
+    public void drawCenteredShadowString(GuiGraphics graphics, Font font, String text, float x, float y, int color)
     {
         float width = font.width(text);
 
@@ -204,13 +207,13 @@ public class HudOverlay
         var yFract = y - yInt;
 
         var pose = graphics.pose();
-        pose.pushMatrix();
-        pose.translate(xFract, yFract);
-        graphics.text(font, text, xInt, yInt, color, true);
-        pose.popMatrix();
+        pose.pushPose();
+        pose.translate(xFract, yFract, 0);
+        graphics.drawString(font, text, xInt, yInt, color, true);
+        pose.popPose();
     }
 
-    public static void drawCenteredBoxedString(GuiGraphicsExtractor graphics, Font font, String text, float x, float y, int color)
+    public static void drawCenteredBoxedString(GuiGraphics graphics, Font font, String text, float x, float y, int color)
     {
         Minecraft mc = Minecraft.getInstance();
         float width = font.width(text);
@@ -230,13 +233,13 @@ public class HudOverlay
         var yFract = yPos - yInt;
 
         var pose = graphics.pose();
-        pose.pushMatrix();
-        pose.translate(xFract, yFract);
-        graphics.text(font, text, xInt, yInt, color, true);
-        pose.popMatrix();
+        pose.pushPose();
+        pose.translate(xFract, yFract, 0);
+        graphics.drawString(font, text, xInt, yInt, color, true);
+        pose.popPose();
     }
 
-    public static void drawCenteredBoxedString(GuiGraphicsExtractor graphics, Font font, Component text, float x, float y, int color)
+    public static void drawCenteredBoxedString(GuiGraphics graphics, Font font, Component text, float x, float y, int color)
     {
         FormattedCharSequence reodering = text.getVisualOrderText();
         Minecraft mc = Minecraft.getInstance();
@@ -246,10 +249,10 @@ public class HudOverlay
         float height1 = height + 3;
         float x0 = x - width1 / 2;
         fillRect(graphics, x0, y, x0 + width1, y + height1, ((int) Mth.clamp(mc.options.textBackgroundOpacity().get() * ((color >> 24) & 0xFF), 0, 255)) << 24);
-        graphics.text(font, reodering, (int) (x - width / 2), (int) (y + 2), color, true);
+        graphics.drawString(font, reodering, (int) (x - width / 2), (int) (y + 2), color, true);
     }
 
-    private void drawPoi(Player player, GuiGraphicsExtractor graphics, float yaw, float angle, float yDelta, int xPos, PointInfo<?> point, boolean isTargetted, float elapsed, Vec3 subtract)
+    private void drawPoi(Player player, GuiGraphics graphics, float yaw, float angle, float yDelta, int xPos, PointInfo<?> point, boolean isTargetted, float elapsed, Vec3 subtract)
     {
         var fadeSqr = ConfigData.waypointViewDistance * ConfigData.waypointViewDistance;
         double distance2 = subtract.lengthSqr();
@@ -270,14 +273,14 @@ public class HudOverlay
         {
             float nPos = xPos + nDist;
             var poseStack = graphics.pose();
-            poseStack.pushMatrix();
-            poseStack.translate(nPos, 0);
+            poseStack.pushPose();
+            poseStack.translate(nPos, 0, 0);
 
             PointRenderer.renderIcon(point, player, textureManager, graphics, 0, 14, alpha);
             boolean showLabel =
                     ConfigData.alwaysShowLabels ||
                             (ConfigData.alwaysShowFocusedLabel && isTargetted) ||
-                            (ConfigData.showAllLabelsOnSneak && Minecraft.getInstance().hasShiftDown());
+                            (ConfigData.showAllLabelsOnSneak && Screen.hasShiftDown());
 
             if (ConfigData.animateLabels)
             {
@@ -306,7 +309,7 @@ public class HudOverlay
                 if (yDelta <= -2) drawBelowArrow(graphics, yDelta, alpha);
             }
 
-            poseStack.popMatrix();
+            poseStack.popPose();
         }
     }
 
@@ -319,7 +322,7 @@ public class HudOverlay
     // whose content genuinely is centered at 4.0. -4.5f is upstream's deliberate compensation for
     // that 0.5px artwork bias, producing correctly-centered final output -- verified by computing
     // both sprites' actual content-center from their pixel data, not by eyeballing a screenshot.
-    private void drawAboveArrow(GuiGraphicsExtractor graphics, float yDelta, int alpha)
+    private void drawAboveArrow(GuiGraphics graphics, float yDelta, int alpha)
     {
         var tex = yDelta > 10 ? "above" : "slightly_above";
         var x = -4.5f;
@@ -327,7 +330,7 @@ public class HudOverlay
         drawMapIcon(graphics, HudCompass.location(tex), x, x + 8, y, y + 8, 1, 1, 1, alpha / 255.0f);
     }
 
-    private void drawBelowArrow(GuiGraphicsExtractor graphics, float yDelta, int alpha)
+    private void drawBelowArrow(GuiGraphics graphics, float yDelta, int alpha)
     {
         var tex = yDelta < -10 ? "below" : "slightly_below";
         var x = -4.5f;
@@ -335,15 +338,20 @@ public class HudOverlay
         drawMapIcon(graphics, HudCompass.location(tex), x, x + 8, y, y + 8, 1, 1, 1, alpha / 255.0f);
     }
 
-    public static void drawMapIcon(GuiGraphicsExtractor graphics, Identifier spriteName,
-                                    float x, float x2, float y, float y2, float r, float g, float b, float a)
+    /**
+     * Draws a sprite from the vanilla map-decorations atlas -- this mod's own icons are stitched
+     * into it too (vanilla's directory source scans {@code textures/map/decorations} across every
+     * namespace). The by-name lookup is protected on 1.21.1, hence the access widener entry.
+     */
+    public static void drawMapIcon(GuiGraphics graphics, ResourceLocation spriteName,
+                                   float x, float x2, float y, float y2, float r, float g, float b, float a)
     {
-        var sprite = Minecraft.getInstance().getAtlasManager().getAtlasOrThrow(AtlasIds.MAP_DECORATIONS).getSprite(spriteName);
+        var sprite = Minecraft.getInstance().getMapDecorationTextures().getSprite(spriteName);
         drawSprite(graphics, sprite, x, x2, y, y2, r, g, b, a);
     }
 
-    public static void drawSprite(GuiGraphicsExtractor graphics, TextureAtlasSprite sprite,
-                                   float x, float x2, float y, float y2, float r, float g, float b, float a)
+    public static void drawSprite(GuiGraphics graphics, TextureAtlasSprite sprite,
+                                  float x, float x2, float y, float y2, float r, float g, float b, float a)
     {
         blitRaw(graphics,
                 sprite.atlasLocation(),
@@ -367,183 +375,65 @@ public class HudOverlay
     }
 
     /**
-     * True sub-pixel-precision blit, matching upstream's original implementation almost verbatim
-     * (including its own {@code u0,u1,v0,v1} constructor-argument shuffle inside
-     * {@code BlitRenderStateF}'s convenience constructor below -- left exactly as upstream has it,
-     * not "cleaned up", since the goal here is 1:1 fidelity, not a rewrite).
+     * True sub-pixel-precision blit: an immediate-mode textured quad at float coordinates, as in
+     * upstream's own 1.21.1 branch.
      * <p>
-     * MC 26.2's {@code GuiGraphicsExtractor} has no direct {@code submitGuiElementRenderState}/
-     * {@code peekScissorStack} methods the way the 26.1.2 API upstream targets does (confirmed via
-     * javap against the real jar) -- but the same underlying submission point still exists, just
-     * one layer down: {@code GuiRenderState#addGuiElement(GuiElementRenderState)}, reached via the
-     * {@code guiRenderState} field (private, access-widened -- see {@code hudcompass.accesswidener}).
-     * Likewise, {@code peekScissorStack()} is now {@code ScissorStack#peek()}, reached via the
-     * {@code scissorStack} field (also widened). Everything else -- the actual vertex/UV math --
-     * is unchanged from upstream.
+     * UV parameters are {@code (u0, v0, u1, v1)} -- min corner then max corner -- which is what
+     * every caller passes. The 26.x build names these {@code (u0, u1, v0, v1)} and compensates
+     * with an argument shuffle in its render-state record's constructor (inherited verbatim from
+     * upstream); the net effect there is this same mapping, so here the parameters are simply
+     * named for what they are.
      */
     public static void blitRaw(
-            GuiGraphicsExtractor graphics,
-            Identifier pAtlasLocation,
+            GuiGraphics graphics,
+            ResourceLocation atlasLocation,
             float x0, float x1, float y0, float y1,
-            float u0, float u1, float v0, float v1,
+            float u0, float v0, float u1, float v1,
             float r, float g, float b, float a
     )
     {
-        int color = ARGB.colorFromFloat(a, r, g, b);
-        GpuTextureView gputextureview = Minecraft.getInstance().getTextureManager().getTexture(pAtlasLocation).getTextureView();
-        graphics.guiRenderState.addGuiElement(
-                new BlitRenderStateF(
-                        RenderPipelines.GUI_TEXTURED,
-                        TextureSetup.singleTexture(gputextureview, RenderSystem.getSamplerCache().getRepeat(FilterMode.NEAREST)),
-                        new Matrix3x2f(graphics.pose()),
-                        x0, y0,
-                        x1, y1,
-                        u0, v0,
-                        u1, v1,
-                        color,
-                        graphics.scissorStack.peek()
-                )
-        );
-    }
+        RenderSystem.setShaderColor(1, 1, 1, 1);
+        RenderSystem.setShaderTexture(0, atlasLocation);
+        RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
 
-    public record BlitRenderStateF(
-            RenderPipeline pipeline,
-            TextureSetup textureSetup,
-            Matrix3x2f pose,
-            float x0, float y0,
-            float x1, float y1,
-            float u0, float v0,
-            float u1, float v1,
-            int color,
-            @Nullable ScreenRectangle scissorArea,
-            @Nullable ScreenRectangle bounds
-    ) implements GuiElementRenderState
-    {
-        public BlitRenderStateF(
-                RenderPipeline pipeline,
-                TextureSetup textureSetup,
-                Matrix3x2f pose,
-                float x0, float y0,
-                float x1, float y1,
-                float u0, float v0,
-                float u1, float v1,
-                int color,
-                @Nullable ScreenRectangle bounds
-        )
-        {
-            this(
-                    pipeline,
-                    textureSetup,
-                    pose,
-                    x0,
-                    y0,
-                    x1,
-                    y1,
-                    u0,
-                    u1, v0,
-                    v1,
-                    color,
-                    bounds,
-                    getBounds(x0, y0, x1, y1, pose, bounds)
-            );
-        }
+        Matrix4f matrix = graphics.pose().last().pose();
+        BufferBuilder buffer = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        buffer.addVertex(matrix, x0, y0, 0).setUv(u0, v0).setColor(r, g, b, a);
+        buffer.addVertex(matrix, x0, y1, 0).setUv(u0, v1).setColor(r, g, b, a);
+        buffer.addVertex(matrix, x1, y1, 0).setUv(u1, v1).setColor(r, g, b, a);
+        buffer.addVertex(matrix, x1, y0, 0).setUv(u1, v0).setColor(r, g, b, a);
+        BufferUploader.drawWithShader(buffer.buildOrThrow());
 
-        @Override
-        public void buildVertices(VertexConsumer consumer)
-        {
-            consumer.addVertexWith2DPose(this.pose(), this.x0(), this.y0()).setUv(this.u0(), this.v0()).setColor(this.color());
-            consumer.addVertexWith2DPose(this.pose(), this.x0(), this.y1()).setUv(this.u0(), this.v1()).setColor(this.color());
-            consumer.addVertexWith2DPose(this.pose(), this.x1(), this.y1()).setUv(this.u1(), this.v1()).setColor(this.color());
-            consumer.addVertexWith2DPose(this.pose(), this.x1(), this.y0()).setUv(this.u1(), this.v0()).setColor(this.color());
-        }
-
-        @Nullable
-        private static ScreenRectangle getBounds(
-                float x0, float y0, float x1, float y1, Matrix3x2f pose, @Nullable ScreenRectangle rect
-        )
-        {
-            ScreenRectangle screenrectangle = new ScreenRectangle(Mth.floor(x0), Mth.floor(y0), Mth.ceil(x1 - x0), Mth.ceil(y1 - y0)).transformMaxBounds(pose);
-            return rect != null ? rect.intersection(screenrectangle) : screenrectangle;
-        }
+        RenderSystem.disableBlend();
     }
 
     public static void fillRect(
-            GuiGraphicsExtractor graphics,
+            GuiGraphics graphics,
             float x0, float y0,
             float x1, float y1,
             int color
     )
     {
-        graphics.guiRenderState.addGuiElement(
-                new FillRenderStateF(
-                        RenderPipelines.GUI,
-                        TextureSetup.noTexture(),
-                        new Matrix3x2f(graphics.pose()),
-                        x0,
-                        y0,
-                        x1,
-                        y1,
-                        color,
-                        graphics.scissorStack.peek()
-                )
-        );
-    }
+        int a = (color >> 24) & 0xFF;
+        int r = (color >> 16) & 0xFF;
+        int g = (color >> 8) & 0xFF;
+        int b = color & 0xFF;
 
-    public record FillRenderStateF(
-            RenderPipeline pipeline,
-            TextureSetup textureSetup,
-            Matrix3x2f pose,
-            float x0,
-            float y0,
-            float x1,
-            float y1,
-            int color,
-            @Nullable ScreenRectangle scissorArea,
-            @Nullable ScreenRectangle bounds
-    ) implements GuiElementRenderState
-    {
-        public FillRenderStateF(
-                RenderPipeline pipeline,
-                TextureSetup textureSetup,
-                Matrix3x2f pose,
-                float x0,
-                float y0,
-                float x1,
-                float y1,
-                int color,
-                @Nullable ScreenRectangle bounds
-        )
-        {
-            this(
-                    pipeline,
-                    textureSetup,
-                    pose,
-                    x0,
-                    y0,
-                    x1,
-                    y1,
-                    color,
-                    bounds,
-                    getBounds(x0, y0, x1, y1, pose, bounds)
-            );
-        }
+        RenderSystem.setShaderColor(1, 1, 1, 1);
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
 
-        @Override
-        public void buildVertices(VertexConsumer consumer)
-        {
-            consumer.addVertexWith2DPose(this.pose(), this.x0(), this.y0()).setColor(this.color());
-            consumer.addVertexWith2DPose(this.pose(), this.x0(), this.y1()).setColor(this.color());
-            consumer.addVertexWith2DPose(this.pose(), this.x1(), this.y1()).setColor(this.color());
-            consumer.addVertexWith2DPose(this.pose(), this.x1(), this.y0()).setColor(this.color());
-        }
+        Matrix4f matrix = graphics.pose().last().pose();
+        BufferBuilder buffer = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        buffer.addVertex(matrix, x0, y0, 0).setColor(r, g, b, a);
+        buffer.addVertex(matrix, x0, y1, 0).setColor(r, g, b, a);
+        buffer.addVertex(matrix, x1, y1, 0).setColor(r, g, b, a);
+        buffer.addVertex(matrix, x1, y0, 0).setColor(r, g, b, a);
+        BufferUploader.drawWithShader(buffer.buildOrThrow());
 
-        @Nullable
-        private static ScreenRectangle getBounds(
-                float x0, float y0, float x1, float y1, Matrix3x2f pose, @Nullable ScreenRectangle rect
-        )
-        {
-            ScreenRectangle screenrectangle = new ScreenRectangle(Mth.floor(x0), Mth.floor(y0), Mth.ceil(x1 - x0), Mth.ceil(y1 - y0)).transformMaxBounds(pose);
-            return rect != null ? rect.intersection(screenrectangle) : screenrectangle;
-        }
+        RenderSystem.disableBlend();
     }
 }

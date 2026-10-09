@@ -79,17 +79,6 @@ public class HudCompassConfigScreen
                 .setTooltip(Component.translatable("config.hudcompass.waypointViewDistance.tooltip"))
                 .setSaveConsumer(v -> values.waypointViewDistance = v)
                 .build());
-        display.addEntry(entry.startBooleanToggle(Component.translatable("config.hudcompass.showLocatorBarWaypoints"), values.showLocatorBarWaypoints)
-                .setDefaultValue(true)
-                .setTooltip(Component.translatable("config.hudcompass.showLocatorBarWaypoints.tooltip"))
-                .setSaveConsumer(v -> values.showLocatorBarWaypoints = v)
-                .build());
-        display.addEntry(entry.startEnumSelector(Component.translatable("config.hudcompass.disableLocatorBarWhen"), ConfigData.DisableLocatorBarWhen.class, values.disableLocatorBarWhen)
-                .setDefaultValue(ConfigData.DisableLocatorBarWhen.WHEN_VISIBLE)
-                .setEnumNameProvider(v -> Component.translatable("config.hudcompass.disableLocatorBarWhen.value." + v.name()))
-                .setTooltip(Component.translatable("config.hudcompass.disableLocatorBarWhen.tooltip"))
-                .setSaveConsumer(v -> values.disableLocatorBarWhen = v)
-                .build());
 
         ConfigCategory general = builder.getOrCreateCategory(Component.translatable("config.hudcompass.category.general"));
         general.addEntry(entry.startBooleanToggle(Component.translatable("config.hudcompass.enableVanillaMapIntegration"), values.enableVanillaMapIntegration)

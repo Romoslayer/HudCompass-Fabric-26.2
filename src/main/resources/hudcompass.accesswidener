@@ -1,20 +1,11 @@
-accessWidener v2 official
+accessWidener v2 named
 
 # For VanillaMapPoints (server-side waypoint source: banner/decoration markers on carried maps).
-# Verified against the real MC 26.2 jar via javap -- centerX/centerZ/dimension/scale are already
-# public on MapItemSavedData, only these two are private. There is no "banners" field in this
-# version (an earlier commented-out template here, copied from upstream's NeoForge access
-# transformer, guessed one that doesn't exist -- corrected after checking the actual class).
 accessible field net/minecraft/world/level/saveddata/maps/MapItemSavedData bannerMarkers Ljava/util/Map;
 accessible field net/minecraft/world/level/saveddata/maps/MapItemSavedData decorations Ljava/util/Map;
 
-# For HudOverlay's blitRaw/fillRect: restores upstream's true sub-pixel-precision GUI rendering
-# (a custom GuiElementRenderState submitted directly), which MC 26.2's GuiGraphicsExtractor no
-# longer exposes a direct submitGuiElementRenderState()/peekScissorStack() method pair for (both
-# confirmed absent via javap) -- the same underlying submission points still exist one layer down,
-# reached via these two otherwise-private fields. GuiGraphicsExtractor$ScissorStack itself is also
-# package-private (not just its field) -- widened too so ScissorStack#peek()'s return value can
-# actually be used from unrelated code, not just referenced via `var` inference.
-accessible field net/minecraft/client/gui/GuiGraphicsExtractor guiRenderState Lnet/minecraft/client/renderer/state/gui/GuiRenderState;
-accessible field net/minecraft/client/gui/GuiGraphicsExtractor scissorStack Lnet/minecraft/client/gui/GuiGraphicsExtractor$ScissorStack;
-accessible class net/minecraft/client/gui/GuiGraphicsExtractor$ScissorStack
+# For HudOverlay#drawMapIcon: looks up this mod's own sprites (home/generic/above/below...) in the
+# vanilla map-decorations atlas, which they're stitched into by vanilla's own directory source.
+# MapDecorationTextureManager only exposes a lookup by MapDecoration publicly; the by-name lookup
+# its parent class has is protected.
+accessible method net/minecraft/client/resources/TextureAtlasHolder getSprite (Lnet/minecraft/resources/ResourceLocation;)Lnet/minecraft/client/renderer/texture/TextureAtlasSprite;

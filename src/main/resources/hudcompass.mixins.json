@@ -7,7 +7,7 @@
     "ServerPlayerWaypointDataMixin"
   ],
   "client": [
-    "HudMixin"
+    "BossHealthOverlayMixin"
   ],
   "server": [],
   "injectors": {

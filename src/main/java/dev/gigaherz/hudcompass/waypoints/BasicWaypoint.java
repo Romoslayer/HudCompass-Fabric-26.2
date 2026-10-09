@@ -29,7 +29,7 @@ public class BasicWaypoint extends PointInfo<BasicWaypoint>
             ByteBufCodecs.optional(ComponentSerialization.STREAM_CODEC), e -> Optional.ofNullable(e.getLabel()),
             ByteBufCodecs.BOOL, e -> e.displayVerticalDistance(null),
             IIconData.DISPATCH_STREAM_CODEC, BasicWaypoint::getIconData,
-            Vec3.STREAM_CODEC, BasicWaypoint::getPosition,
+            VEC3_STREAM_CODEC, BasicWaypoint::getPosition,
             ByteBufCodecs.BOOL, PointInfo::isDynamic,
             BasicWaypoint::new
     );

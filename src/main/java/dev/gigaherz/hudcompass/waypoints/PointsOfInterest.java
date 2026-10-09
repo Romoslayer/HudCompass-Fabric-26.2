@@ -3,23 +3,27 @@ package dev.gigaherz.hudcompass.waypoints;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.mojang.serialization.DynamicOps;
 import dev.gigaherz.hudcompass.icons.BasicIconData;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtOps;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.util.ProblemReporter;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.storage.TagValueInput;
-import net.minecraft.world.level.storage.TagValueOutput;
-import net.minecraft.world.level.storage.ValueInput;
-import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.Vec3;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -40,6 +44,8 @@ import java.util.function.Supplier;
  */
 public class PointsOfInterest
 {
+    private static final Logger LOGGER = LogManager.getLogger();
+
     public static final PointsOfInterest INSTANCE = new PointsOfInterest();
 
     private PointInfo<?> targetted;
@@ -65,10 +71,10 @@ public class PointsOfInterest
      */
     public boolean otherSideHasMod = false;
 
-    private final Map<Identifier, Object> addonData = Maps.newHashMap();
+    private final Map<ResourceLocation, Object> addonData = Maps.newHashMap();
 
     @SuppressWarnings("unchecked")
-    public <T> T getOrCreateAddonData(Identifier addonId, Supplier<T> factory)
+    public <T> T getOrCreateAddonData(ResourceLocation addonId, Supplier<T> factory)
     {
         return (T) addonData.computeIfAbsent(addonId, key -> factory.get());
     }
@@ -80,25 +86,37 @@ public class PointsOfInterest
 
     private final Map<ResourceKey<Level>, WorldPoints> perWorld = Maps.newHashMap();
 
-    public void serialize(ValueOutput valueOutput)
+    /**
+     * Disk format, written into {@code tag}. The 26.x build does this through
+     * {@code ValueOutput}, which 1.21.1 doesn't have yet; this writes the same shape directly
+     * ({@code Worlds} -> list of {@code {World, POIs}}, each POI encoded by
+     * {@link PointInfo#DISPATCH_CODEC}), using registry-aware NBT ops so labels with
+     * registry-backed content still round-trip.
+     */
+    public void serialize(CompoundTag tag, HolderLookup.Provider registries)
     {
-        var list = valueOutput.childrenList("Worlds");
+        var ops = registries.createSerializationContext(NbtOps.INSTANCE);
+        ListTag worlds = new ListTag();
         for (Map.Entry<ResourceKey<Level>, WorldPoints> entry : perWorld.entrySet())
         {
-            var element = list.addChild();
-            element.putString("World", entry.getKey().identifier().toString());
-            entry.getValue().write(element.childrenList("POIs"));
+            CompoundTag element = new CompoundTag();
+            element.putString("World", entry.getKey().location().toString());
+            element.put("POIs", entry.getValue().write(ops));
+            worlds.add(element);
         }
+        tag.put("Worlds", worlds);
     }
 
-    public void deserialize(ValueInput valueInput)
+    public void deserialize(CompoundTag tag, HolderLookup.Provider registries)
     {
         perWorld.clear();
-        for (var element : valueInput.childrenListOrEmpty("Worlds"))
+        var ops = registries.createSerializationContext(NbtOps.INSTANCE);
+        ListTag worlds = tag.getList("Worlds", Tag.TAG_COMPOUND);
+        for (int i = 0; i < worlds.size(); i++)
         {
-            ResourceKey<Level> key = ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, Identifier.parse(element.getString("World").orElseThrow()));
-            WorldPoints p = get(key);
-            p.read(element.childrenList("POIs").orElseThrow());
+            CompoundTag element = worlds.getCompound(i);
+            ResourceKey<Level> key = ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(element.getString("World")));
+            get(key).read(element.getList("POIs", Tag.TAG_COMPOUND), ops);
         }
         savedNumber = changeNumber = syncNumber = 0;
     }
@@ -109,7 +127,7 @@ public class PointsOfInterest
         buffer.writeVarInt(perWorld.size());
         for (Map.Entry<ResourceKey<Level>, WorldPoints> entry : perWorld.entrySet())
         {
-            buffer.writeIdentifier(entry.getKey().identifier());
+            buffer.writeResourceLocation(entry.getKey().location());
             entry.getValue().write(buffer);
         }
     }
@@ -120,18 +138,35 @@ public class PointsOfInterest
      * payload happens to mention -- otherwise a sync telling the client "you have zero
      * server-side waypoints" (an empty payload) would leave stale client-local-disk-loaded
      * points sitting untouched in worlds the payload never bothered to list.
+     * <p>
+     * Every sync replaces the points with freshly decoded objects, so each point's label-fade
+     * state ({@link PointInfo#fade}) is carried over to its replacement by id. Otherwise a showing
+     * label would restart its fade-in on every sync and visibly blink -- and syncs can come about
+     * once a second while a far-away tracked player moves (see {@code PlayerTracker.PlayerWaypoint}).
      */
     public void read(RegistryFriendlyByteBuf buffer)
     {
+        Map<UUID, Float> fades = new HashMap<>();
+        perWorld.values().forEach(w -> w.points.values().forEach(p -> {
+            if (p.isServerManaged())
+                fades.put(p.getInternalId(), p.fade);
+        }));
+
         perWorld.values().forEach(w -> w.points.values().removeIf(PointInfo::isServerManaged));
 
         int numWorlds = buffer.readVarInt();
         for (int i = 0; i < numWorlds; i++)
         {
-            ResourceKey<Level> key = ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, buffer.readIdentifier());
+            ResourceKey<Level> key = ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, buffer.readResourceLocation());
             get(key).read(buffer);
         }
         savedNumber = changeNumber = syncNumber = syncedNumber = 0;
+
+        perWorld.values().forEach(w -> w.points.values().forEach(p -> {
+            Float fade = fades.get(p.getInternalId());
+            if (fade != null)
+                p.fade = fade;
+        }));
     }
 
     public void clear()
@@ -288,25 +323,32 @@ public class PointsOfInterest
         }
 
         @SuppressWarnings({"rawtypes", "unchecked"})
-        public void write(ValueOutput.ValueOutputList outputList)
+        public ListTag write(DynamicOps<Tag> ops)
         {
+            ListTag list = new ListTag();
             for (PointInfo point : points.values())
             {
                 if (!point.isDynamic())
                 {
-                    var child = outputList.addChild();
-                    child.store(PointInfo.DISPATCH_CODEC, point);
+                    PointInfo.DISPATCH_CODEC.codec().encodeStart(ops, point)
+                            .resultOrPartial(LOGGER::error)
+                            .ifPresent(list::add);
                 }
             }
+            return list;
         }
 
-        public void read(ValueInput.ValueInputList list)
+        public void read(ListTag list, DynamicOps<Tag> ops)
         {
             points.clear();
-            for (var child : list)
+            for (Tag child : list)
             {
-                var pointOpt = child.read(PointInfo.DISPATCH_CODEC);
-                pointOpt.ifPresent(point -> points.put(point.getInternalId(), point));
+                PointInfo.DISPATCH_CODEC.codec().parse(ops, child)
+                        .resultOrPartial(LOGGER::error)
+                        .ifPresent(point -> {
+                            point.setOwner(this);
+                            points.put(point.getInternalId(), point);
+                        });
             }
         }
 
@@ -324,7 +366,7 @@ public class PointsOfInterest
         /**
          * Full-state wire format for multiplayer sync -- see {@code SyncWaypointData}. Only
          * clears out points already known to be server-managed, so purely client-local points
-         * (e.g. {@code LocatorBarPoints} adapters mirroring vanilla waypoints) survive a sync.
+         * (e.g. {@code JmWaypoint}s mirroring JourneyMap waypoints) survive a sync.
          */
         public void read(RegistryFriendlyByteBuf buffer)
         {

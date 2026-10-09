@@ -5,12 +5,14 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import dev.gigaherz.hudcompass.icons.IIconData;
+import io.netty.buffer.ByteBuf;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.ComponentSerialization;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import org.jetbrains.annotations.Nullable;
 
@@ -25,6 +27,17 @@ public abstract class PointInfo<T extends PointInfo<T>>
 
     public static final StreamCodec<RegistryFriendlyByteBuf, PointInfo<?>>
             DISPATCH_STREAM_CODEC = PointInfoType.BY_ID_STREAM_CODEC.dispatch(PointInfo::getType, PointInfoType::streamCodec);
+
+    /**
+     * Stand-in for {@code Vec3.STREAM_CODEC}, which vanilla only added in 1.21.2 -- same wire
+     * format (three doubles, x/y/z), shared by every waypoint type that sends a position.
+     */
+    public static final StreamCodec<ByteBuf, Vec3> VEC3_STREAM_CODEC = StreamCodec.composite(
+            ByteBufCodecs.DOUBLE, Vec3::x,
+            ByteBufCodecs.DOUBLE, Vec3::y,
+            ByteBufCodecs.DOUBLE, Vec3::z,
+            Vec3::new
+    );
 
     private final PointInfoType<? extends T> type;
     @Nullable
@@ -135,8 +148,8 @@ public abstract class PointInfo<T extends PointInfo<T>>
     }
 
     /**
-     * Marks this point as purely client-local (e.g. a {@code LocatorBarPoints} adapter mirroring
-     * a vanilla waypoint), so a full multiplayer sync replacing the server-managed points must
+     * Marks this point as purely client-local (e.g. a {@code JmWaypoint} mirroring a JourneyMap
+     * waypoint), so a full multiplayer sync replacing the server-managed points must
      * not wipe it out from under whatever is maintaining it.
      */
     @SuppressWarnings("unchecked")

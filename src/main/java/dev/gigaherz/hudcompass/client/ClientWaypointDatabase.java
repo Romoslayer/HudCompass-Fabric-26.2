@@ -8,10 +8,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.Connection;
-import net.minecraft.resources.Identifier;
-import net.minecraft.util.ProblemReporter;
-import net.minecraft.world.level.storage.TagValueInput;
-import net.minecraft.world.level.storage.TagValueOutput;
+import net.minecraft.resources.ResourceLocation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,7 +48,7 @@ public class ClientWaypointDatabase
             {
                 address = addr.toString();
             }
-            Identifier dim = mc.player.level().dimension().identifier();
+            ResourceLocation dim = mc.player.level().dimension().location();
             String dimension = dim.getNamespace() + "_" + dim.getPath();
             return FabricLoader.getInstance().getGameDir().resolve("server_waypoints").resolve(address).resolve(dimension).resolve("waypoints.dat").toAbsolutePath();
         }
@@ -75,16 +72,11 @@ public class ClientWaypointDatabase
         {
             try
             {
+                // No ProblemReporter on 1.21.1 -- a point that fails to decode is logged and
+                // skipped individually inside PointsOfInterest instead.
                 CompoundTag tag = NbtIo.read(path);
-                var reporter = new ProblemReporter.Collector();
-                var input = TagValueInput.create(reporter, mc.getConnection().registryAccess(), tag);
-                var list = input.childrenListOrEmpty("Worlds");
                 PointsOfInterest.INSTANCE.clear();
-                PointsOfInterest.INSTANCE.deserialize(input);
-                if (!reporter.isEmpty())
-                {
-                    LOGGER.warn("Problems while deserialising POIs: {}", reporter.getReport());
-                }
+                PointsOfInterest.INSTANCE.deserialize(tag, mc.getConnection().registryAccess());
                 LOGGER.debug("Done!");
             }
             catch (IOException e)
@@ -122,15 +114,9 @@ public class ClientWaypointDatabase
                     Files.createDirectories(path.getParent());
                 }
 
-                var reporter = new ProblemReporter.Collector();
-                var output = TagValueOutput.createWithContext(reporter, mc.getConnection().registryAccess());
-                PointsOfInterest.INSTANCE.serialize(output);
-                if (!reporter.isEmpty())
-                {
-                    LOGGER.warn("Problems while serialising POIs: {}", reporter.getReport());
-                }
-
-                NbtIo.write(output.buildResult(), path);
+                CompoundTag tag = new CompoundTag();
+                PointsOfInterest.INSTANCE.serialize(tag, mc.getConnection().registryAccess());
+                NbtIo.write(tag, path);
 
                 PointsOfInterest.INSTANCE.savedNumber = PointsOfInterest.INSTANCE.changeNumber;
 

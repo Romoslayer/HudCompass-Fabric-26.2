@@ -37,16 +37,16 @@ import java.util.stream.Stream;
 /**
  * Mirrors JourneyMap's own waypoints onto the compass HUD -- one-directional, read-only:
  * HudCompass never creates or edits JourneyMap waypoints, it just displays them alongside its
- * own. Purely client-side (a JourneyMap client plugin has no server-side counterpart here), so
- * this ports over cleanly the same way {@code LocatorBarPoints} does.
+ * own. Purely client-side (a JourneyMap client plugin has no server-side counterpart here).
  * <p>
  * Upstream had a version of this already, but it was commented out in its entirety and had
  * bit-rotted against an older shape of {@code PointInfo} (references to a since-removed
  * {@code serializeAdditional}/{@code deserializeAdditional} pair that don't exist anywhere else
  * in the current codebase) -- this is a fresh implementation against the current API on both
- * sides (this mod's {@code PointInfo}, and the real JourneyMap API v2 for MC 26.2, verified
- * against the actual {@code TeamJM/journeymap-api} repo at its {@code 26.2_2.0.0_1} tag, not
- * assumed from the stale draft).
+ * sides (this mod's {@code PointInfo}, and the real JourneyMap API v2, originally written for
+ * MC 26.2 and verified against the actual {@code TeamJM/journeymap-api} repo at its
+ * {@code 26.2_2.0.0_1} tag, not assumed from the stale draft). The same v2 surface exists in
+ * API {@code 2.0.0-1.21.1}, which the 1.21.1 build compiles against unchanged.
  * <p>
  * <b>Soft dependency, loaded lazily by design</b> -- per the JourneyMap API's own guidance: this
  * class is registered via the {@code "journeymap"} entrypoint in {@code fabric.mod.json}, which
@@ -65,10 +65,10 @@ import java.util.stream.Stream;
  * ever re-fire them, the mirror just stays empty from then on. Rather than chase the exact
  * timing further, added a periodic reconciliation pass using {@code IClientAPI#getAllWaypoints}
  * (a direct query, not dependent on catching any particular event) as a self-healing safety net
- * -- same pattern already used elsewhere in this port (see {@code LocatorBarPoints},
- * {@code PlayerTracker}) for "mirror an external live state onto the compass" integrations.
+ * -- same pattern already used elsewhere in this port (see {@code PlayerTracker}) for "mirror an
+ * external live state onto the compass" integrations.
  */
-@JourneyMapPlugin(apiVersion = "26.2-2.0.0")
+@JourneyMapPlugin(apiVersion = "2.0.0-1.21.1")
 public class HudCompassJourneymapPlugin implements IClientPlugin
 {
     private static final Logger LOGGER = LogManager.getLogger();
@@ -82,8 +82,8 @@ public class HudCompassJourneymapPlugin implements IClientPlugin
     private int counter = 0;
 
     // Never actually sent over the network or saved to disk: these are purely-local mirrors of
-    // JourneyMap's own waypoint state (dynamic + clientPoint, same reasoning as
-    // LocatorBarPoints' VanillaWaypointAdapter), so both codecs are unreachable in practice.
+    // JourneyMap's own waypoint state (dynamic + clientPoint), so both codecs are unreachable
+    // in practice.
     private static final MapCodec<JmWaypoint> UNREACHABLE_CODEC = new MapCodec<>()
     {
         @Override
@@ -275,7 +275,7 @@ public class HudCompassJourneymapPlugin implements IClientPlugin
     {
         return jmwp.getBlockPos() != null && jmwp.isEnabled()
                 && (jmwp.getDimensions() == null || jmwp.getDimensions().isEmpty()
-                        || jmwp.getDimensions().contains(dimension.identifier().toString()));
+                        || jmwp.getDimensions().contains(dimension.location().toString()));
     }
 
     @Nullable
