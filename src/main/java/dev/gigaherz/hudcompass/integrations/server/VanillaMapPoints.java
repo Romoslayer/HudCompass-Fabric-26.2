@@ -14,12 +14,12 @@ import dev.gigaherz.hudcompass.waypoints.PointInfoType;
 import dev.gigaherz.hudcompass.waypoints.PointsOfInterest;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.core.UUIDUtil;
-import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.ComponentSerialization;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.resources.Identifier;
+import net.minecraft.util.ExtraCodecs;
+import dev.gigaherz.hudcompass.network.codec.ByteBufCodecs;
+import dev.gigaherz.hudcompass.network.codec.StreamCodec;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
@@ -27,7 +27,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.MapItem;
 import net.minecraft.world.level.saveddata.maps.MapBanner;
 import net.minecraft.world.level.saveddata.maps.MapDecoration;
-import net.minecraft.world.level.saveddata.maps.MapDecorationTypes;
+import dev.gigaherz.hudcompass.icons.MapDecorationSprites;
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
 import net.minecraft.world.phys.Vec3;
 
@@ -50,7 +50,7 @@ import java.util.UUID;
  */
 public class VanillaMapPoints
 {
-    private static final Identifier ADDON_ID = HudCompass.location("vanilla_map");
+    private static final ResourceLocation ADDON_ID = HudCompass.location("vanilla_map");
 
     public static final PointInfoType<MapDecorationWaypoint> DECORATION_TYPE =
             PointInfoType.register("map_decoration", MapDecorationWaypoint.CODEC, MapDecorationWaypoint.STREAM_CODEC);
@@ -132,9 +132,9 @@ public class VanillaMapPoints
                     MapDecoration decoration = kvp.getValue();
 
                     // skip players, PlayerTracker already handles those.
-                    if (decoration.type() == MapDecorationTypes.PLAYER ||
-                            decoration.type() == MapDecorationTypes.PLAYER_OFF_LIMITS ||
-                            decoration.type() == MapDecorationTypes.PLAYER_OFF_MAP)
+                    if (decoration.getType() == MapDecoration.Type.PLAYER ||
+                            decoration.getType() == MapDecoration.Type.PLAYER_OFF_LIMITS ||
+                            decoration.getType() == MapDecoration.Type.PLAYER_OFF_MAP)
                         continue;
 
                     if (!isTracked(worldPoints, decorationPointInfoMap, decoration))
@@ -180,12 +180,12 @@ public class VanillaMapPoints
                 codecFragment(instance).and(Vec3.CODEC.fieldOf("pos").forGetter(MapBannerWaypoint::getPosition)).apply(instance, MapBannerWaypoint::new)
         );
 
-        public static final StreamCodec<RegistryFriendlyByteBuf, MapBannerWaypoint> STREAM_CODEC = StreamCodec.composite(
-                UUIDUtil.STREAM_CODEC, PointInfo::getInternalId,
-                ByteBufCodecs.optional(ComponentSerialization.STREAM_CODEC), e -> Optional.ofNullable(e.getLabel()),
+        public static final StreamCodec<FriendlyByteBuf, MapBannerWaypoint> STREAM_CODEC = StreamCodec.composite(
+                ByteBufCodecs.UUID, PointInfo::getInternalId,
+                ByteBufCodecs.optional(ByteBufCodecs.COMPONENT), e -> Optional.ofNullable(e.getLabel()),
                 ByteBufCodecs.BOOL, e -> e.displayVerticalDistance(null),
                 IIconData.DISPATCH_STREAM_CODEC, MapBannerWaypoint::getIconData,
-                Vec3.STREAM_CODEC, MapBannerWaypoint::getPosition,
+                VEC3_STREAM_CODEC, MapBannerWaypoint::getPosition,
                 MapBannerWaypoint::new
         );
 
@@ -205,9 +205,9 @@ public class VanillaMapPoints
 
         public MapBannerWaypoint(MapBanner banner, MapDecoration decoration)
         {
-            super(BANNER_TYPE, true, banner.name().orElse(null), BasicIconData.basic(decoration.getSpriteLocation()));
+            super(BANNER_TYPE, true, banner.getName(), BasicIconData.basic(MapDecorationSprites.spriteFor(decoration.getType())));
             dynamic();
-            this.position = Vec3.atCenterOf(banner.pos());
+            this.position = Vec3.atCenterOf(banner.getPos());
         }
 
         @Override
@@ -223,12 +223,12 @@ public class VanillaMapPoints
                 codecFragment(instance).and(Vec3.CODEC.fieldOf("pos").forGetter(MapDecorationWaypoint::getPosition)).apply(instance, MapDecorationWaypoint::new)
         );
 
-        public static final StreamCodec<RegistryFriendlyByteBuf, MapDecorationWaypoint> STREAM_CODEC = StreamCodec.composite(
-                UUIDUtil.STREAM_CODEC, PointInfo::getInternalId,
-                ByteBufCodecs.optional(ComponentSerialization.STREAM_CODEC), e -> Optional.ofNullable(e.getLabel()),
+        public static final StreamCodec<FriendlyByteBuf, MapDecorationWaypoint> STREAM_CODEC = StreamCodec.composite(
+                ByteBufCodecs.UUID, PointInfo::getInternalId,
+                ByteBufCodecs.optional(ByteBufCodecs.COMPONENT), e -> Optional.ofNullable(e.getLabel()),
                 ByteBufCodecs.BOOL, e -> e.displayVerticalDistance(null),
                 IIconData.DISPATCH_STREAM_CODEC, MapDecorationWaypoint::getIconData,
-                Vec3.STREAM_CODEC, MapDecorationWaypoint::getPosition,
+                VEC3_STREAM_CODEC, MapDecorationWaypoint::getPosition,
                 MapDecorationWaypoint::new
         );
 
@@ -248,13 +248,13 @@ public class VanillaMapPoints
 
         public MapDecorationWaypoint(MapItemSavedData mapData, MapDecoration decoration)
         {
-            super(DECORATION_TYPE, true, null, BasicIconData.basic(decoration.getSpriteLocation()));
+            super(DECORATION_TYPE, true, null, BasicIconData.basic(MapDecorationSprites.spriteFor(decoration.getType())));
 
             dynamic();
             noVerticalDistance();
 
-            float decoX = (decoration.x() - 0.5f) * 0.5f;
-            float decoZ = (decoration.y() - 0.5f) * 0.5f;
+            float decoX = (decoration.getX() - 0.5f) * 0.5f;
+            float decoZ = (decoration.getY() - 0.5f) * 0.5f;
 
             int scale = 1 << mapData.scale;
             float worldX = mapData.centerX + decoX * scale;

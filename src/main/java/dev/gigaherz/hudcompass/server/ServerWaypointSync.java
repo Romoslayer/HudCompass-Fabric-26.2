@@ -52,29 +52,29 @@ public class ServerWaypointSync
 
     public static void init()
     {
-        ServerPlayNetworking.registerGlobalReceiver(ClientHello.TYPE, (payload, context) -> {
-            var points = get(context.player());
+        ServerPlayNetworking.registerGlobalReceiver(ClientHello.TYPE, (payload, player, responseSender) -> {
+            var points = get(player);
             points.otherSideHasMod = true;
-            sendSync(context.player(), points);
+            sendSync(player, points);
         });
 
-        ServerPlayNetworking.registerGlobalReceiver(AddWaypoint.TYPE, (payload, context) -> {
-            var points = get(context.player());
+        ServerPlayNetworking.registerGlobalReceiver(AddWaypoint.TYPE, (payload, player, responseSender) -> {
+            var points = get(player);
             var labelText = payload.label();
             var label = (labelText == null || labelText.isEmpty()) ? null : labelText;
             var waypoint = new BasicWaypoint(new Vec3(payload.x(), payload.y(), payload.z()), label,
                     BasicIconData.basic(payload.spriteName()));
-            points.get(context.player().level()).addPoint(waypoint);
+            points.get(player.level()).addPoint(waypoint);
         });
 
-        ServerPlayNetworking.registerGlobalReceiver(RemoveWaypoint.TYPE, (payload, context) -> {
-            var points = get(context.player());
+        ServerPlayNetworking.registerGlobalReceiver(RemoveWaypoint.TYPE, (payload, player, responseSender) -> {
+            var points = get(player);
             points.getAllWorlds().forEach(world -> world.removePoint(payload.id()));
         });
 
-        ServerPlayNetworking.registerGlobalReceiver(UpdateWaypointsFromGui.TYPE, (payload, context) -> {
-            var points = get(context.player());
-            var decoded = payload.decode(context.player().registryAccess());
+        ServerPlayNetworking.registerGlobalReceiver(UpdateWaypointsFromGui.TYPE, (payload, player, responseSender) -> {
+            var points = get(player);
+            var decoded = payload.decode(player.level().registryAccess());
             points.applyUpdatesFromGui(decoded.pointsAdded(), decoded.pointsUpdated(), decoded.pointsRemoved());
         });
 
@@ -108,7 +108,7 @@ public class ServerWaypointSync
         if (ConfigData.disableServerHello)
             return;
 
-        ServerPlayNetworking.send(player, SyncWaypointData.of(points, player.registryAccess()));
+        ServerPlayNetworking.send(player, SyncWaypointData.of(points, player.level().registryAccess()));
         points.syncedNumber = points.syncNumber;
     }
 }

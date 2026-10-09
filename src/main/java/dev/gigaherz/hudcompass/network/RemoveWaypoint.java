@@ -1,30 +1,38 @@
 package dev.gigaherz.hudcompass.network;
 
+import dev.gigaherz.hudcompass.network.codec.ByteBufCodecs;
 import dev.gigaherz.hudcompass.HudCompass;
 import dev.gigaherz.hudcompass.waypoints.PointInfo;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.Identifier;
+import dev.gigaherz.hudcompass.network.codec.StreamCodec;
+import net.fabricmc.fabric.api.networking.v1.FabricPacket;
+import net.fabricmc.fabric.api.networking.v1.PacketType;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.UUID;
 
 /** Sent client -> server, requesting an existing waypoint be removed. */
-public record RemoveWaypoint(UUID id) implements CustomPacketPayload
+public record RemoveWaypoint(UUID id) implements FabricPacket
 {
-    public static final Identifier ID = HudCompass.location("remove_waypoint");
-    public static final Type<RemoveWaypoint> TYPE = new Type<>(ID);
+    public static final ResourceLocation ID = HudCompass.location("remove_waypoint");
+    public static final PacketType<RemoveWaypoint> TYPE = PacketType.create(ID, buf -> RemoveWaypoint.STREAM_CODEC.decode(buf));
 
     public static final StreamCodec<FriendlyByteBuf, RemoveWaypoint> STREAM_CODEC = StreamCodec.composite(
-            UUIDUtil.STREAM_CODEC, RemoveWaypoint::id,
+            ByteBufCodecs.UUID, RemoveWaypoint::id,
             RemoveWaypoint::new
     );
 
     @Override
-    public Type<? extends CustomPacketPayload> type()
+    public PacketType<RemoveWaypoint> getType()
     {
         return TYPE;
+    }
+
+    @Override
+    public void write(FriendlyByteBuf buf)
+    {
+        STREAM_CODEC.encode(buf, this);
     }
 
     public RemoveWaypoint(PointInfo<?> point)

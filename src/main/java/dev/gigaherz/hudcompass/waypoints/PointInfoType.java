@@ -3,21 +3,21 @@ package dev.gigaherz.hudcompass.waypoints;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.MapCodec;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
+import dev.gigaherz.hudcompass.network.codec.ByteBufCodecs;
+import dev.gigaherz.hudcompass.network.codec.StreamCodec;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-public record PointInfoType<T extends PointInfo<T>>(String name, MapCodec<T> codec, StreamCodec<RegistryFriendlyByteBuf, T> streamCodec)
+public record PointInfoType<T extends PointInfo<T>>(String name, MapCodec<T> codec, StreamCodec<FriendlyByteBuf, T> streamCodec)
 {
     private static final Map<String, PointInfoType<?>> BY_NAME = new LinkedHashMap<>();
     private static final Map<PointInfoType<?>, String> NAMES = new IdentityHashMap<>();
 
-    public static <T extends PointInfo<T>> PointInfoType<T> register(String name, MapCodec<T> codec, StreamCodec<RegistryFriendlyByteBuf, T> streamCodec)
+    public static <T extends PointInfo<T>> PointInfoType<T> register(String name, MapCodec<T> codec, StreamCodec<FriendlyByteBuf, T> streamCodec)
     {
         PointInfoType<T> type = new PointInfoType<>(name, codec, streamCodec);
         BY_NAME.put(name, type);
@@ -46,7 +46,7 @@ public record PointInfoType<T extends PointInfo<T>>(String name, MapCodec<T> cod
             }
     );
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, PointInfoType<?>> BY_ID_STREAM_CODEC = StreamCodec.of(
+    public static final StreamCodec<FriendlyByteBuf, PointInfoType<?>> BY_ID_STREAM_CODEC = StreamCodec.of(
             (buf, type) -> {
                 String name = NAMES.get(type);
                 if (name == null)

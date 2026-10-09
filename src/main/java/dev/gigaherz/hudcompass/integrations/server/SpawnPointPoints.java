@@ -7,7 +7,7 @@ import dev.gigaherz.hudcompass.server.ServerWaypointSync;
 import dev.gigaherz.hudcompass.waypoints.BasicWaypoint;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.core.BlockPos;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
@@ -25,7 +25,7 @@ import java.util.Objects;
  */
 public class SpawnPointPoints
 {
-    private static final Identifier ADDON_ID = HudCompass.location("spawn_point");
+    private static final ResourceLocation ADDON_ID = HudCompass.location("spawn_point");
 
     private int counter = 0;
 
@@ -68,9 +68,11 @@ public class SpawnPointPoints
             addon.spawnPosition = null;
         }
 
-        var respawnConfig = player.getRespawnConfig();
-        ResourceKey<Level> worldKey = respawnConfig != null ? respawnConfig.respawnData().dimension() : null;
-        BlockPos spawnPosition = respawnConfig != null ? respawnConfig.respawnData().pos() : null;
+        // 1.20.1 has no RespawnConfig record (the 26.x build reads both facts from one); here they
+        // are separate getters. A null position means no bed/anchor is set -- the dimension getter
+        // still answers (it defaults to the overworld), so it's only trusted when there is one.
+        BlockPos spawnPosition = player.getRespawnPosition();
+        ResourceKey<Level> worldKey = spawnPosition != null ? player.getRespawnDimension() : null;
 
         boolean enabled = ConfigData.enableSpawnPointWaypoint;
         boolean hasWaypoint = addon.waypoint != null;
@@ -78,7 +80,7 @@ public class SpawnPointPoints
         boolean positionChanged = !Objects.equals(addon.spawnPosition, spawnPosition);
         boolean waypointChanged = dimensionChanged || positionChanged;
 
-        boolean hasBed = respawnConfig != null;
+        boolean hasBed = spawnPosition != null;
 
         if (hasWaypoint && (!enabled || !hasBed || waypointChanged))
         {

@@ -34,13 +34,6 @@ public class ConfigData
         ALWAYS
     }
 
-    public enum DisableLocatorBarWhen
-    {
-        NEVER,
-        WHEN_VISIBLE,
-        ALWAYS
-    }
-
     public enum PlayerDisplay
     {
         NONE,
@@ -57,8 +50,6 @@ public class ConfigData
         public DisplayWhen displayWhen = DisplayWhen.HOLDING_COMPASS;
         public double waypointFadeDistance = 195.0;
         public double waypointViewDistance = 200.0;
-        public boolean showLocatorBarWaypoints = true;
-        public DisableLocatorBarWhen disableLocatorBarWhen = DisableLocatorBarWhen.WHEN_VISIBLE;
 
         public boolean enableVanillaMapIntegration = true;
         public boolean enableSpawnPointWaypoint = true;
@@ -80,8 +71,6 @@ public class ConfigData
     public static DisplayWhen displayWhen;
     public static double waypointViewDistance;
     public static double waypointFadeDistance;
-    public static boolean showLocatorBarWaypoints;
-    public static DisableLocatorBarWhen disableLocatorBarWhen;
     public static boolean enableVanillaMapIntegration;
     public static boolean enableSpawnPointWaypoint;
     public static boolean enableJourneymapIntegration;
@@ -147,8 +136,6 @@ public class ConfigData
         displayWhen = values.displayWhen;
         waypointFadeDistance = values.waypointFadeDistance;
         waypointViewDistance = values.waypointViewDistance;
-        showLocatorBarWaypoints = values.showLocatorBarWaypoints;
-        disableLocatorBarWhen = values.disableLocatorBarWhen;
         enableVanillaMapIntegration = values.enableVanillaMapIntegration;
         enableSpawnPointWaypoint = values.enableSpawnPointWaypoint;
         enableJourneymapIntegration = values.enableJourneymapIntegration;

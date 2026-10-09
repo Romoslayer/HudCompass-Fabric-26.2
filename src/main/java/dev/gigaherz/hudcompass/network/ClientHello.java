@@ -1,27 +1,34 @@
 package dev.gigaherz.hudcompass.network;
 
 import dev.gigaherz.hudcompass.HudCompass;
-import io.netty.buffer.ByteBuf;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.Identifier;
+import dev.gigaherz.hudcompass.network.codec.StreamCodec;
+import net.fabricmc.fabric.api.networking.v1.FabricPacket;
+import net.fabricmc.fabric.api.networking.v1.PacketType;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.resources.ResourceLocation;
 
 /**
  * Sent client -> server in reply to {@link ServerHello}, confirming the client also has the mod
  * and would like the server's authoritative waypoint state.
  */
-public record ClientHello() implements CustomPacketPayload
+public record ClientHello() implements FabricPacket
 {
     public static final ClientHello INSTANCE = new ClientHello();
 
-    public static final Identifier ID = HudCompass.location("client_hello");
-    public static final Type<ClientHello> TYPE = new Type<>(ID);
+    public static final ResourceLocation ID = HudCompass.location("client_hello");
+    public static final PacketType<ClientHello> TYPE = PacketType.create(ID, buf -> ClientHello.STREAM_CODEC.decode(buf));
 
-    public static final StreamCodec<ByteBuf, ClientHello> STREAM_CODEC = StreamCodec.unit(INSTANCE);
+    public static final StreamCodec<FriendlyByteBuf, ClientHello> STREAM_CODEC = StreamCodec.unit(INSTANCE);
 
     @Override
-    public Type<? extends CustomPacketPayload> type()
+    public PacketType<ClientHello> getType()
     {
         return TYPE;
+    }
+
+    @Override
+    public void write(FriendlyByteBuf buf)
+    {
+        STREAM_CODEC.encode(buf, this);
     }
 }

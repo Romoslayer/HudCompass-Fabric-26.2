@@ -15,8 +15,7 @@ import dev.gigaherz.hudcompass.server.ServerWaypointSync;
 import dev.gigaherz.hudcompass.waypoints.BasicWaypoint;
 import dev.gigaherz.hudcompass.waypoints.PointInfoType;
 import net.fabricmc.api.ModInitializer;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 
 public class HudCompass implements ModInitializer
 {
@@ -33,21 +32,14 @@ public class HudCompass implements ModInitializer
     {
         ConfigData.load();
 
-        PayloadTypeRegistry.serverboundPlay().register(ClientHello.TYPE, ClientHello.STREAM_CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(AddWaypoint.TYPE, AddWaypoint.STREAM_CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(RemoveWaypoint.TYPE, RemoveWaypoint.STREAM_CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(UpdateWaypointsFromGui.TYPE, UpdateWaypointsFromGui.STREAM_CODEC);
-        PayloadTypeRegistry.clientboundPlay().register(ServerHello.TYPE, ServerHello.STREAM_CODEC);
-        PayloadTypeRegistry.clientboundPlay().register(SyncWaypointData.TYPE, SyncWaypointData.STREAM_CODEC);
-
         ServerWaypointSync.init();
         PlayerTracker.init();
         SpawnPointPoints.init();
         VanillaMapPoints.init();
     }
 
-    public static Identifier location(String path)
+    public static ResourceLocation location(String path)
     {
-        return Identifier.fromNamespaceAndPath(MODID, path);
+        return new ResourceLocation(MODID, path);
     }
 }

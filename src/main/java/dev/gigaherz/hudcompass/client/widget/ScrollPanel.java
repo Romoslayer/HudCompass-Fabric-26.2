@@ -1,13 +1,12 @@
 package dev.gigaherz.hudcompass.client.widget;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.components.events.AbstractContainerEventHandler;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarratableEntry;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.input.MouseButtonEvent;
 
 import java.util.Collections;
 import java.util.List;
@@ -17,9 +16,9 @@ import java.util.List;
  * which {@code ClientWaypointManagerScreen} is built on and has no Fabric equivalent. The scrolling
  * algorithm (scrollbar math, drag/wheel handling, scissor bounds) is carried over faithfully from
  * NeoForge's own implementation (LGPL-2.1, Forge Development LLC and contributors) -- only the
- * rendering surface is adapted, since MC 26.2 replaced the old {@code GuiGraphics}/{@code render()}
- * split with {@code GuiGraphicsExtractor}/{@code extractRenderState()} (see {@code HudOverlay}'s
- * class javadoc for the same adaptation elsewhere in this port).
+ * rendering and input surface is adapted, to 1.20.1's {@code GuiGraphics}/{@code render()} and
+ * {@code (mouseX, mouseY, button)} event methods (the 26.x build targets {@code extractRenderState()}
+ * and {@code MouseButtonEvent} records instead).
  */
 public abstract class ScrollPanel extends AbstractContainerEventHandler implements Renderable, NarratableEntry
 {
@@ -64,19 +63,32 @@ public abstract class ScrollPanel extends AbstractContainerEventHandler implemen
 
     protected abstract int getContentHeight();
 
-    /** Runs AFTER the scissor is enabled. */
-    protected void drawBackground(GuiGraphicsExtractor graphics, float partialTick)
+    /**
+     * Runs AFTER the scissor is enabled. 1.20.1 predates the menu-background textures the newer
+     * builds use here, so this draws what Forge's 1.20.1 {@code ScrollPanel} (the one upstream's
+     * 1.20.1 editor was built on) draws: a dark translucent gradient in-world, dark dirt otherwise.
+     */
+    protected void drawBackground(GuiGraphics graphics, float partialTick)
     {
-        Screen.extractMenuBackgroundTexture(graphics, Screen.MENU_BACKGROUND, left, top, 0.0F, 0.0F, width, height);
+        if (minecraft.level != null)
+        {
+            graphics.fillGradient(left, top, right, bottom, 0xC0101010, 0xD0101010);
+        }
+        else
+        {
+            graphics.setColor(0.125F, 0.125F, 0.125F, 1.0F);
+            graphics.blit(Screen.BACKGROUND_LOCATION, left, top, 0.0F, scrollDistance, width, height, 32, 32);
+            graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
+        }
     }
 
     /**
      * Draw the panel's contents. The scissor is enabled for anything rendered outside the view
      * box -- do not touch it unless you support that.
      */
-    protected abstract void drawPanel(GuiGraphicsExtractor graphics, int entryRight, int relativeY, int mouseX, int mouseY);
+    protected abstract void drawPanel(GuiGraphics graphics, int entryRight, int relativeY, int mouseX, int mouseY);
 
-    protected boolean clickPanel(double mouseX, double mouseY, MouseButtonEvent event)
+    protected boolean clickPanel(double mouseX, double mouseY, int button)
     {
         return false;
     }
@@ -98,11 +110,11 @@ public abstract class ScrollPanel extends AbstractContainerEventHandler implemen
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double deltaX, double deltaY)
+    public boolean mouseScrolled(double mouseX, double mouseY, double delta)
     {
-        if (deltaY != 0)
+        if (delta != 0)
         {
-            this.scrollDistance += (float) (-deltaY * getScrollAmount());
+            this.scrollDistance += (float) (-delta * getScrollAmount());
             applyScrollLimits();
             return true;
         }
@@ -121,27 +133,27 @@ public abstract class ScrollPanel extends AbstractContainerEventHandler implemen
     }
 
     @Override
-    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick)
+    public boolean mouseClicked(double mouseX, double mouseY, int button)
     {
-        if (super.mouseClicked(event, doubleClick))
+        if (super.mouseClicked(mouseX, mouseY, button))
             return true;
 
-        this.scrolling = event.button() == 0 && event.x() >= barLeft && event.x() < right && event.y() >= top && event.y() < bottom;
+        this.scrolling = button == 0 && mouseX >= barLeft && mouseX < right && mouseY >= top && mouseY < bottom;
         if (this.scrolling)
             return true;
 
-        int mouseListY = ((int) event.y()) - this.top - this.getContentHeight() + (int) this.scrollDistance - border;
-        if (event.x() >= left && event.x() < right && mouseListY < 0)
+        int mouseListY = ((int) mouseY) - this.top - this.getContentHeight() + (int) this.scrollDistance - border;
+        if (mouseX >= left && mouseX < right && mouseListY < 0)
         {
-            return this.clickPanel(event.x() - left, event.y() - this.top + (int) this.scrollDistance - border, event);
+            return this.clickPanel(mouseX - left, mouseY - this.top + (int) this.scrollDistance - border, button);
         }
         return false;
     }
 
     @Override
-    public boolean mouseReleased(MouseButtonEvent event)
+    public boolean mouseReleased(double mouseX, double mouseY, int button)
     {
-        if (super.mouseReleased(event))
+        if (super.mouseReleased(mouseX, mouseY, button))
             return true;
         boolean ret = this.scrolling;
         this.scrolling = false;
@@ -159,7 +171,7 @@ public abstract class ScrollPanel extends AbstractContainerEventHandler implemen
     }
 
     @Override
-    public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY)
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY)
     {
         if (this.scrolling)
         {
@@ -173,7 +185,7 @@ public abstract class ScrollPanel extends AbstractContainerEventHandler implemen
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick)
+    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick)
     {
         graphics.enableScissor(this.left, this.top, this.right, this.bottom);
 

@@ -5,11 +5,11 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import dev.gigaherz.hudcompass.HudCompass;
 import dev.gigaherz.hudcompass.icons.IIconData;
 import net.minecraft.core.UUIDUtil;
-import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.ComponentSerialization;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.util.ExtraCodecs;
+import dev.gigaherz.hudcompass.network.codec.ByteBufCodecs;
+import dev.gigaherz.hudcompass.network.codec.StreamCodec;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
@@ -24,12 +24,12 @@ public class BasicWaypoint extends PointInfo<BasicWaypoint>
             codecFragment(instance).and(Vec3.CODEC.fieldOf("pos").forGetter(BasicWaypoint::getPosition)).apply(instance, BasicWaypoint::new)
     );
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, BasicWaypoint> STREAM_CODEC = StreamCodec.composite(
-            UUIDUtil.STREAM_CODEC, PointInfo::getInternalId,
-            ByteBufCodecs.optional(ComponentSerialization.STREAM_CODEC), e -> Optional.ofNullable(e.getLabel()),
+    public static final StreamCodec<FriendlyByteBuf, BasicWaypoint> STREAM_CODEC = StreamCodec.composite(
+            ByteBufCodecs.UUID, PointInfo::getInternalId,
+            ByteBufCodecs.optional(ByteBufCodecs.COMPONENT), e -> Optional.ofNullable(e.getLabel()),
             ByteBufCodecs.BOOL, e -> e.displayVerticalDistance(null),
             IIconData.DISPATCH_STREAM_CODEC, BasicWaypoint::getIconData,
-            Vec3.STREAM_CODEC, BasicWaypoint::getPosition,
+            VEC3_STREAM_CODEC, BasicWaypoint::getPosition,
             ByteBufCodecs.BOOL, PointInfo::isDynamic,
             BasicWaypoint::new
     );

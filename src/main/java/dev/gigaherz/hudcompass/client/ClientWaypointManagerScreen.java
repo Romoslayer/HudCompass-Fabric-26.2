@@ -11,7 +11,7 @@ import dev.gigaherz.hudcompass.waypoints.PointInfo;
 import dev.gigaherz.hudcompass.waypoints.PointsOfInterest;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -20,9 +20,7 @@ import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarratableEntry;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.util.Mth;
@@ -93,7 +91,7 @@ public class ClientWaypointManagerScreen extends Screen
     private void loadWaypoints()
     {
         PointsOfInterest.INSTANCE.getAllWorlds().stream()
-                .sorted(Comparator.comparing(w -> w.getWorldKey().identifier()))
+                .sorted(Comparator.comparing(w -> w.getWorldKey().location()))
                 .forEach(world -> {
                     WorldListItem worldItem = addWorld(world.getWorldKey());
 
@@ -115,21 +113,21 @@ public class ClientWaypointManagerScreen extends Screen
         super.init();
 
         scrollPanel = new ItemsScrollPanel(minecraft, width - MARGIN_RIGHT - MARGIN_LEFT, height - MARGIN_TOP - MARGIN_BOTTOM, MARGIN_TOP, MARGIN_LEFT);
-        // addWidget (not addRenderableWidget): this screen's own extractRenderState already calls
-        // scrollPanel.extractRenderState(...) explicitly further down, so it only needs to be
+        // addWidget (not addRenderableWidget): this screen's own render already calls
+        // scrollPanel.render(...) explicitly further down, so it only needs to be
         // registered for input/focus handling, not a second, automatic render pass too.
         addWidget(scrollPanel);
 
         saveButton = addRenderableWidget(Button.builder(Component.translatable("text.hudcompass.waypoint_editor.save"), (button) -> {
             scrollPanel.saveAll();
 
-            List<PointAddRemoveEntry> added = toAdd.stream().map(i -> new PointAddRemoveEntry(i.worldItem.worldKey.identifier(), i.pointInfo)).toList();
-            List<PointAddRemoveEntry> updated = toUpdate.stream().map(i -> new PointAddRemoveEntry(i.worldItem.worldKey.identifier(), i.pointInfo)).toList();
+            List<PointAddRemoveEntry> added = toAdd.stream().map(i -> new PointAddRemoveEntry(i.worldItem.worldKey.location(), i.pointInfo)).toList();
+            List<PointAddRemoveEntry> updated = toUpdate.stream().map(i -> new PointAddRemoveEntry(i.worldItem.worldKey.location(), i.pointInfo)).toList();
             List<UUID> removed = toRemove.stream().map(i -> i.pointInfo.getInternalId()).toList();
 
             if (PointsOfInterest.INSTANCE.otherSideHasMod)
             {
-                ClientPlayNetworking.send(UpdateWaypointsFromGui.of(added, updated, removed, minecraft.player.registryAccess()));
+                ClientPlayNetworking.send(UpdateWaypointsFromGui.of(added, updated, removed, minecraft.player.level().registryAccess()));
             }
             else
             {
@@ -150,28 +148,29 @@ public class ClientWaypointManagerScreen extends Screen
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks)
+    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks)
     {
-        this.extractMenuBackground(graphics, 0, scrollPanel.getTop(), width, scrollPanel.getHeight());
-        graphics.blit(RenderPipelines.GUI_TEXTURED, Screen.INWORLD_HEADER_SEPARATOR, 0, scrollPanel.getTop() - 2, 0.0F, 0.0F, width, 2, 32, 2);
-        graphics.blit(RenderPipelines.GUI_TEXTURED, Screen.INWORLD_FOOTER_SEPARATOR, 0, scrollPanel.getBottom(), 0.0F, 0.0F, width, 2, 32, 2);
+        // 1.20.1's Screen#render only draws widgets, so the background is drawn here, once --
+        // the same order as upstream's own 1.20.1 editor. (No menu-background/separator textures
+        // on this version; the list area gets its backdrop from ScrollPanel#drawBackground.)
+        this.renderBackground(graphics);
 
-        scrollPanel.extractRenderState(graphics, mouseX, mouseY, partialTicks);
+        scrollPanel.render(graphics, mouseX, mouseY, partialTicks);
 
-        super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
+        super.render(graphics, mouseX, mouseY, partialTicks);
 
-        graphics.centeredText(minecraft.font, title, width / 2, 7, 0xFFFFFFFF);
+        graphics.drawCenteredString(minecraft.font, title, width / 2, 7, 0xFFFFFFFF);
 
         int nameWidth = Math.max(scrollPanel.getContentWidth() - (61 * 2 + 41 + 23 + 23 + 3), 50);
         int x = scrollPanel.getLeft() + 6;
         int y = scrollPanel.getTop() - 12;
-        graphics.text(minecraft.font, Component.translatable("text.hudcompass.waypoint_editor.header_label"), x, y, 0xFFFFFFFF, false);
+        graphics.drawString(minecraft.font, Component.translatable("text.hudcompass.waypoint_editor.header_label"), x, y, 0xFFFFFFFF, false);
         x += nameWidth + 3;
-        graphics.text(minecraft.font, Component.translatable("text.hudcompass.waypoint_editor.header_x"), x, y, 0xFFFFFFFF, false);
+        graphics.drawString(minecraft.font, Component.translatable("text.hudcompass.waypoint_editor.header_x"), x, y, 0xFFFFFFFF, false);
         x += 61;
-        graphics.text(minecraft.font, Component.translatable("text.hudcompass.waypoint_editor.header_y"), x, y, 0xFFFFFFFF, false);
+        graphics.drawString(minecraft.font, Component.translatable("text.hudcompass.waypoint_editor.header_y"), x, y, 0xFFFFFFFF, false);
         x += 41;
-        graphics.text(minecraft.font, Component.translatable("text.hudcompass.waypoint_editor.header_z"), x, y, 0xFFFFFFFF, false);
+        graphics.drawString(minecraft.font, Component.translatable("text.hudcompass.waypoint_editor.header_z"), x, y, 0xFFFFFFFF, false);
     }
 
     private void createNewPoint(WorldListItem worldItem)
@@ -256,7 +255,7 @@ public class ClientWaypointManagerScreen extends Screen
         {
             super(minecraft, 22);
 
-            this.title = Component.translatable("text.hudcompass.waypoint_editor.world", key.identifier().toString());
+            this.title = Component.translatable("text.hudcompass.waypoint_editor.world", key.location().toString());
             this.worldKey = key;
         }
 
@@ -282,11 +281,11 @@ public class ClientWaypointManagerScreen extends Screen
         }
 
         @Override
-        public void render(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks)
+        public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks)
         {
             super.render(graphics, mouseX, mouseY, partialTicks);
 
-            graphics.text(minecraft.font, title, 4 + 20, 10, 0xFFFFFFFF, false);
+            graphics.drawString(minecraft.font, title, 4 + 20, 10, 0xFFFFFFFF, false);
         }
 
         public void addWaypoint(WaypointListItem item)
@@ -480,7 +479,7 @@ public class ClientWaypointManagerScreen extends Screen
         }
 
         @Override
-        public void render(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks)
+        public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks)
         {
             if (!isVisible())
                 return;
@@ -489,10 +488,14 @@ public class ClientWaypointManagerScreen extends Screen
             if (actualMouseX >= 0 && actualMouseX < getWidth() && actualMouseY >= 0 && actualMouseY <= getHeight())
             {
                 graphics.fill(0, 0, getWidth(), getHeight(), 0x1fFFFFFF);
+                // Keeps the hover highlight under the widgets drawn next. Only needed on 1.21.1,
+                // where fill() is batched while widget sprite blits draw immediately; 1.20.1
+                // already flushes unmanaged fills, so this is a no-op here, kept to match that branch.
+                graphics.flush();
             }
             for (AbstractWidget i : renderables)
             {
-                i.extractRenderState(graphics, actualMouseX, actualMouseY, partialTicks);
+                i.render(graphics, actualMouseX, actualMouseY, partialTicks);
             }
         }
 
@@ -515,18 +518,18 @@ public class ClientWaypointManagerScreen extends Screen
         }
 
         @Override
-        public boolean mouseClicked(MouseButtonEvent event, boolean isDoubleClick)
+        public boolean mouseClicked(double mouseX, double mouseY, int button)
         {
             if (!isVisible())
                 return false;
-            double actualMouseX = getActualX(event.x());
-            double actualMouseY = getActualY(event.y());
+            double actualMouseX = getActualX(mouseX);
+            double actualMouseY = getActualY(mouseY);
             for (GuiEventListener item : this.children())
             {
-                if (item.mouseClicked(new MouseButtonEvent(actualMouseX, actualMouseY, event.buttonInfo()), isDoubleClick))
+                if (item.mouseClicked(actualMouseX, actualMouseY, button))
                 {
                     this.setFocused(item);
-                    if (event.button() == InputConstants.MOUSE_BUTTON_LEFT)
+                    if (button == InputConstants.MOUSE_BUTTON_LEFT)
                     {
                         this.setDragging(true);
                     }
@@ -539,38 +542,38 @@ public class ClientWaypointManagerScreen extends Screen
         }
 
         @Override
-        public boolean mouseReleased(MouseButtonEvent event)
+        public boolean mouseReleased(double mouseX, double mouseY, int button)
         {
             if (!isVisible())
                 return false;
-            double actualMouseX = getActualX(event.x());
-            double actualMouseY = getActualY(event.y());
+            double actualMouseX = getActualX(mouseX);
+            double actualMouseY = getActualY(mouseY);
             this.setDragging(false);
-            return this.getChildAt(event.x(), event.y())
-                    .filter((listener) -> listener.mouseReleased(new MouseButtonEvent(actualMouseX, actualMouseY, event.buttonInfo())))
+            return this.getChildAt(mouseX, mouseY)
+                    .filter((listener) -> listener.mouseReleased(actualMouseX, actualMouseY, button))
                     .isPresent();
         }
 
         @Override
-        public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY)
+        public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY)
         {
             if (!isVisible())
                 return false;
-            double actualMouseX = getActualX(event.x());
-            double actualMouseY = getActualY(event.y());
-            return this.getFocused() != null && this.isDragging() && event.button() == InputConstants.MOUSE_BUTTON_LEFT
-                    && this.getFocused().mouseDragged(new MouseButtonEvent(actualMouseX, actualMouseY, event.buttonInfo()), dragX, dragY);
+            double actualMouseX = getActualX(mouseX);
+            double actualMouseY = getActualY(mouseY);
+            return this.getFocused() != null && this.isDragging() && button == InputConstants.MOUSE_BUTTON_LEFT
+                    && this.getFocused().mouseDragged(actualMouseX, actualMouseY, button, dragX, dragY);
         }
 
         @Override
-        public boolean mouseScrolled(double mouseX, double mouseY, double deltaX, double deltaY)
+        public boolean mouseScrolled(double mouseX, double mouseY, double delta)
         {
             if (!isVisible())
                 return false;
             double actualMouseX = getActualX(mouseX);
             double actualMouseY = getActualY(mouseY);
             return this.getChildAt(mouseX, mouseY)
-                    .filter((listener) -> listener.mouseScrolled(actualMouseX, actualMouseY, deltaX, deltaY))
+                    .filter((listener) -> listener.mouseScrolled(actualMouseX, actualMouseY, delta))
                     .isPresent();
         }
 
@@ -677,7 +680,7 @@ public class ClientWaypointManagerScreen extends Screen
         {
         }
 
-        public abstract void render(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks);
+        public abstract void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks);
 
         public void save()
         {
@@ -788,22 +791,22 @@ public class ClientWaypointManagerScreen extends Screen
         }
 
         @Override
-        protected void drawPanel(GuiGraphicsExtractor graphics, int entryRight, int relativeY, int mouseX, int mouseY)
+        protected void drawPanel(GuiGraphics graphics, int entryRight, int relativeY, int mouseX, int mouseY)
         {
             var mStack = graphics.pose();
-            mStack.pushMatrix();
-            mStack.translate(left, relativeY);
+            mStack.pushPose();
+            mStack.translate(left, relativeY, 0);
             for (ListItem item : items)
             {
                 if (item.isVisible())
                 {
-                    mStack.pushMatrix();
-                    mStack.translate(0, item.getTop());
+                    mStack.pushPose();
+                    mStack.translate(0, item.getTop(), 0);
                     item.render(graphics, mouseX, mouseY, 1.0F);
-                    mStack.popMatrix();
+                    mStack.popPose();
                 }
             }
-            mStack.popMatrix();
+            mStack.popPose();
         }
 
         @Override
@@ -879,23 +882,23 @@ public class ClientWaypointManagerScreen extends Screen
         }
 
         @Override
-        public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTicks)
+        public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks)
         {
             this.scrollDistance = Mth.clamp(scrollDistance, 0, Math.max(0, getContentHeight() - (height - border)));
-            super.extractRenderState(graphics, mouseX, mouseY, partialTicks);
+            super.render(graphics, mouseX, mouseY, partialTicks);
         }
 
         @Override
-        public boolean mouseClicked(MouseButtonEvent event, boolean isDoubleClick)
+        public boolean mouseClicked(double mouseX, double mouseY, int button)
         {
-            if (super.mouseClicked(event, isDoubleClick))
+            if (super.mouseClicked(mouseX, mouseY, button))
                 return true;
 
             for (GuiEventListener item : this.children())
             {
-                if (item.mouseClicked(event, isDoubleClick))
+                if (item.mouseClicked(mouseX, mouseY, button))
                 {
-                    if (event.button() == InputConstants.MOUSE_BUTTON_LEFT)
+                    if (button == InputConstants.MOUSE_BUTTON_LEFT)
                     {
                         this.setDragging(true);
                     }
@@ -908,37 +911,37 @@ public class ClientWaypointManagerScreen extends Screen
         }
 
         @Override
-        public boolean mouseReleased(MouseButtonEvent event)
+        public boolean mouseReleased(double mouseX, double mouseY, int button)
         {
-            if (super.mouseReleased(event))
+            if (super.mouseReleased(mouseX, mouseY, button))
                 return true;
 
             this.setDragging(false);
-            return this.getChildAt(event.x(), event.y())
-                    .filter((listener) -> listener.mouseReleased(event))
+            return this.getChildAt(mouseX, mouseY)
+                    .filter((listener) -> listener.mouseReleased(mouseX, mouseY, button))
                     .isPresent();
         }
 
         @Override
-        public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY)
+        public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY)
         {
-            if (super.mouseDragged(event, dragX, dragY))
+            if (super.mouseDragged(mouseX, mouseY, button, dragX, dragY))
                 return true;
 
             return this.getFocused() != null
                     && this.isDragging()
-                    && event.button() == InputConstants.MOUSE_BUTTON_LEFT
-                    && this.getFocused().mouseDragged(event, dragX, dragY);
+                    && button == InputConstants.MOUSE_BUTTON_LEFT
+                    && this.getFocused().mouseDragged(mouseX, mouseY, button, dragX, dragY);
         }
 
         @Override
-        public boolean mouseScrolled(double mouseX, double mouseY, double deltaX, double deltaY)
+        public boolean mouseScrolled(double mouseX, double mouseY, double delta)
         {
-            if (super.mouseScrolled(mouseX, mouseY, deltaX, deltaY))
+            if (super.mouseScrolled(mouseX, mouseY, delta))
                 return true;
 
             return this.getChildAt(mouseX, mouseY)
-                    .filter((listener) -> listener.mouseScrolled(mouseX, mouseY, deltaX, deltaY))
+                    .filter((listener) -> listener.mouseScrolled(mouseX, mouseY, delta))
                     .isPresent();
         }
 

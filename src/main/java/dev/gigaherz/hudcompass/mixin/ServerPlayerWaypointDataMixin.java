@@ -1,9 +1,9 @@
 package dev.gigaherz.hudcompass.mixin;
 
 import dev.gigaherz.hudcompass.server.ServerWaypointSync;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.level.storage.ValueInput;
-import net.minecraft.world.level.storage.ValueOutput;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -28,15 +28,21 @@ public abstract class ServerPlayerWaypointDataMixin
     private static final String HUDCOMPASS_TAG = "hudcompass";
 
     @Inject(method = "addAdditionalSaveData", at = @At("TAIL"))
-    private void hudcompass$save(ValueOutput output, CallbackInfo ci)
+    private void hudcompass$save(CompoundTag tag, CallbackInfo ci)
     {
-        ServerWaypointSync.get((ServerPlayer) (Object) this).serialize(output.child(HUDCOMPASS_TAG));
+        ServerPlayer self = (ServerPlayer) (Object) this;
+        CompoundTag child = new CompoundTag();
+        ServerWaypointSync.get(self).serialize(child, self.level().registryAccess());
+        tag.put(HUDCOMPASS_TAG, child);
     }
 
     @Inject(method = "readAdditionalSaveData", at = @At("TAIL"))
-    private void hudcompass$load(ValueInput input, CallbackInfo ci)
+    private void hudcompass$load(CompoundTag tag, CallbackInfo ci)
     {
-        input.child(HUDCOMPASS_TAG).ifPresent(child ->
-                ServerWaypointSync.get((ServerPlayer) (Object) this).deserialize(child));
+        if (tag.contains(HUDCOMPASS_TAG, Tag.TAG_COMPOUND))
+        {
+            ServerPlayer self = (ServerPlayer) (Object) this;
+            ServerWaypointSync.get(self).deserialize(tag.getCompound(HUDCOMPASS_TAG), self.level().registryAccess());
+        }
     }
 }

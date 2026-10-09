@@ -3,9 +3,9 @@ package dev.gigaherz.hudcompass.icons;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.MapCodec;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
+import dev.gigaherz.hudcompass.network.codec.ByteBufCodecs;
+import dev.gigaherz.hudcompass.network.codec.StreamCodec;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.IdentityHashMap;
@@ -18,12 +18,12 @@ import java.util.Map;
  * NBT (disk/attachment-equivalent storage) and now for the network stream codec used by
  * multiplayer waypoint sync.
  */
-public record IconDataSerializer<T extends IIconData<T>>(String name, MapCodec<T> codec, StreamCodec<RegistryFriendlyByteBuf, T> streamCodec)
+public record IconDataSerializer<T extends IIconData<T>>(String name, MapCodec<T> codec, StreamCodec<FriendlyByteBuf, T> streamCodec)
 {
     private static final Map<String, IconDataSerializer<?>> BY_NAME = new LinkedHashMap<>();
     private static final Map<IconDataSerializer<?>, String> NAMES = new IdentityHashMap<>();
 
-    public static <T extends IIconData<T>> IconDataSerializer<T> register(String name, MapCodec<T> codec, StreamCodec<RegistryFriendlyByteBuf, T> streamCodec)
+    public static <T extends IIconData<T>> IconDataSerializer<T> register(String name, MapCodec<T> codec, StreamCodec<FriendlyByteBuf, T> streamCodec)
     {
         IconDataSerializer<T> serializer = new IconDataSerializer<>(name, codec, streamCodec);
         BY_NAME.put(name, serializer);
@@ -52,7 +52,7 @@ public record IconDataSerializer<T extends IIconData<T>>(String name, MapCodec<T
             }
     );
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, IconDataSerializer<?>> BY_ID_STREAM_CODEC = StreamCodec.of(
+    public static final StreamCodec<FriendlyByteBuf, IconDataSerializer<?>> BY_ID_STREAM_CODEC = StreamCodec.of(
             (buf, serializer) -> {
                 String name = NAMES.get(serializer);
                 if (name == null)

@@ -1,9 +1,9 @@
 package dev.gigaherz.hudcompass.icons.client;
 
 import dev.gigaherz.hudcompass.client.HudOverlay;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.player.AbstractClientPlayer;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Player;
 
 import java.util.UUID;
@@ -16,11 +16,11 @@ import java.util.UUID;
  */
 public class PlayerFaceRenderer
 {
-    public static boolean drawUUID(Player player, UUID uuid, GuiGraphicsExtractor graphics, int x, int y, int alpha)
+    public static boolean drawUUID(Player player, UUID uuid, GuiGraphics graphics, int x, int y, int alpha)
     {
         if (uuid != null && player.level().getPlayerByUUID(uuid) instanceof AbstractClientPlayer clientPlayer)
         {
-            var tex = clientPlayer.getSkin().body().texturePath();
+            var tex = clientPlayer.getSkinTextureLocation();
 
             drawFaceLayer(graphics, tex, x - 4, y - 4, 8, 8, 8);
             drawFaceLayer(graphics, tex, x - 4.5f, y - 4.5f, 9, 9, 40);
@@ -30,7 +30,7 @@ public class PlayerFaceRenderer
         return false;
     }
 
-    private static void drawFaceLayer(GuiGraphicsExtractor graphics, Identifier tex, float x1, float y1, float w, float h, int tx)
+    private static void drawFaceLayer(GuiGraphics graphics, ResourceLocation tex, float x1, float y1, float w, float h, int tx)
     {
         var x2 = x1 + w;
         var y2 = y1 + h;

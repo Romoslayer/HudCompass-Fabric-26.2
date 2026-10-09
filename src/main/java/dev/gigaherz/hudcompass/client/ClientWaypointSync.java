@@ -7,7 +7,7 @@ import dev.gigaherz.hudcompass.waypoints.PointsOfInterest;
 import io.netty.buffer.Unpooled;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.FriendlyByteBuf;
 
 /**
  * Client-side half of multiplayer waypoint sharing: negotiates with {@code ServerWaypointSync}
@@ -23,13 +23,13 @@ public class ClientWaypointSync
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) ->
                 PointsOfInterest.INSTANCE.otherSideHasMod = false);
 
-        ClientPlayNetworking.registerGlobalReceiver(ServerHello.TYPE, (payload, context) -> {
+        ClientPlayNetworking.registerGlobalReceiver(ServerHello.TYPE, (payload, player, responseSender) -> {
             PointsOfInterest.INSTANCE.otherSideHasMod = true;
             ClientPlayNetworking.send(ClientHello.INSTANCE);
         });
 
-        ClientPlayNetworking.registerGlobalReceiver(SyncWaypointData.TYPE, (payload, context) -> {
-            var buffer = new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(payload.bytes()), context.player().registryAccess());
+        ClientPlayNetworking.registerGlobalReceiver(SyncWaypointData.TYPE, (payload, player, responseSender) -> {
+            var buffer = new FriendlyByteBuf(Unpooled.wrappedBuffer(payload.bytes()));
             PointsOfInterest.INSTANCE.read(buffer);
         });
     }

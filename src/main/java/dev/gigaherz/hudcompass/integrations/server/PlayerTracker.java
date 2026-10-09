@@ -15,20 +15,20 @@ import dev.gigaherz.hudcompass.waypoints.PointInfoType;
 import dev.gigaherz.hudcompass.waypoints.PointsOfInterest;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.texture.TextureManager;
 import net.minecraft.core.UUIDUtil;
-import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.resources.Identifier;
+import dev.gigaherz.hudcompass.network.codec.ByteBufCodecs;
+import dev.gigaherz.hudcompass.network.codec.StreamCodec;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.scores.PlayerTeam;
+import net.minecraft.world.scores.Team;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -42,12 +42,9 @@ import java.util.UUID;
  * ConfigData#playerDisplay} (NONE / TEAM / ALL, using vanilla scoreboard teams -- unrelated to
  * anything social/external).
  * <p>
- * Deliberately independent of vanilla's own locator-bar/waypoint system ({@code
- * LocatorBarPoints}, gated by the {@code locatorBar} game rule): that's a conscious choice
- * matching upstream's original design, which predates vanilla's own player-tracking feature.
- * See the {@code LocatorBarPoints} javadoc for the corresponding half of the de-duplication this
- * requires -- it explicitly skips player-identified vanilla waypoints so the two systems don't
- * both add an icon for the same player.
+ * This is the only source of player icons on 1.20.1: vanilla's locator bar (and the 26.x build's
+ * {@code LocatorBarPoints} mirroring it, which this tracker had to de-duplicate against) only
+ * arrived in 1.21.6.
  * <p>
  * Upstream drives this off NeoForge's {@code PlayerEvent.StartTracking}/{@code StopTracking}
  * (fired by vanilla's per-entity chunk-tracking system). Fabric API has no equivalent event in
@@ -122,8 +119,8 @@ public class PlayerTracker
 
         if (ConfigData.playerDisplay != ConfigData.PlayerDisplay.NONE)
         {
-            PlayerTeam observerTeam = observer.getTeam();
-            for (ServerPlayer target : observer.level().players())
+            Team observerTeam = observer.getTeam();
+            for (ServerPlayer target : observer.serverLevel().players())
             {
                 if (target == observer)
                     continue;
@@ -138,7 +135,7 @@ public class PlayerTracker
                     var wp = new PlayerWaypoint(target);
                     worldPoints.addPoint(wp);
                     return wp;
-                });
+                }).followOnServer(target);
             }
         }
 
@@ -150,29 +147,49 @@ public class PlayerTracker
         });
     }
 
+    /**
+     * A player shown on the compass. The client follows the live player entity when it has one,
+     * but it only has one within entity-tracking range -- {@link PlayerTracker} adds every player
+     * in the dimension, so for a teammate farther away the client falls back to {@link #position},
+     * the last position the server sent. That's why the position is part of the codecs and kept
+     * fresh by {@link #followOnServer}: before it was, a decoded point had no position at all and
+     * a far-away teammate crashed the client (NPE in the per-tick targeting and the HUD).
+     */
     public static class PlayerWaypoint extends PointInfo<PlayerWaypoint>
     {
         public static final MapCodec<PlayerWaypoint> CODEC = RecordCodecBuilder.mapCodec(instance ->
-                codecFragment(instance).and(UUIDUtil.CODEC.fieldOf("player").forGetter(e -> e.playerUUID)).apply(instance, PlayerWaypoint::new)
+                codecFragment(instance).and(instance.group(
+                        UUIDUtil.CODEC.fieldOf("player").forGetter(e -> e.playerUUID),
+                        Vec3.CODEC.fieldOf("pos").forGetter(e -> e.position)
+                )).apply(instance, PlayerWaypoint::new)
         );
 
-        public static final StreamCodec<RegistryFriendlyByteBuf, PlayerWaypoint> STREAM_CODEC = StreamCodec.composite(
-                UUIDUtil.STREAM_CODEC, PointInfo::getInternalId,
-                ByteBufCodecs.optional(net.minecraft.network.chat.ComponentSerialization.STREAM_CODEC), e -> Optional.ofNullable(e.getLabel()),
+        public static final StreamCodec<FriendlyByteBuf, PlayerWaypoint> STREAM_CODEC = StreamCodec.composite(
+                ByteBufCodecs.UUID, PointInfo::getInternalId,
+                ByteBufCodecs.optional(ByteBufCodecs.COMPONENT), e -> Optional.ofNullable(e.getLabel()),
                 ByteBufCodecs.BOOL, e -> e.displayVerticalDistance(null),
                 IIconData.DISPATCH_STREAM_CODEC, PlayerWaypoint::getIconData,
-                UUIDUtil.STREAM_CODEC, e -> e.playerUUID,
+                ByteBufCodecs.UUID, e -> e.playerUUID,
+                VEC3_STREAM_CODEC, e -> e.position,
                 PlayerWaypoint::new
         );
+
+        /**
+         * How far a tracked player must move before the server sends the new position. Coarse on
+         * purpose: it only matters beyond entity-tracking range (100+ blocks away, where a few
+         * blocks are a fraction of a degree on the compass), and every send is a full resync.
+         */
+        private static final double RESYNC_DISTANCE_SQR = 4 * 4;
 
         private final UUID playerUUID;
         private Vec3 position;
 
         @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
-        protected PlayerWaypoint(UUID internalId, Optional<Component> label, boolean displayVerticalDistance, IIconData<?> iconData, UUID playerUUID)
+        protected PlayerWaypoint(UUID internalId, Optional<Component> label, boolean displayVerticalDistance, IIconData<?> iconData, UUID playerUUID, Vec3 position)
         {
             super(PLAYER_POINT, false, internalId, label, displayVerticalDistance, iconData);
             this.playerUUID = playerUUID;
+            this.position = position;
         }
 
         public PlayerWaypoint(Player player)
@@ -191,6 +208,16 @@ public class PlayerTracker
                 return position;
 
             return target.getPosition(partialTicks);
+        }
+
+        /** Server side, from each tracking scan: keep the position clients fall back to current. */
+        void followOnServer(Player target)
+        {
+            if (position.distanceToSqr(target.position()) > RESYNC_DISTANCE_SQR)
+            {
+                position = target.position();
+                markDirty();
+            }
         }
 
         @Override
@@ -214,8 +241,8 @@ public class PlayerTracker
                 UUIDUtil.CODEC.fieldOf("player").forGetter(e -> e.playerId)
         ).apply(instance, PlayerIconData::new));
 
-        public static final StreamCodec<RegistryFriendlyByteBuf, PlayerIconData> STREAM_CODEC = StreamCodec.composite(
-                UUIDUtil.STREAM_CODEC, e -> e.playerId,
+        public static final StreamCodec<FriendlyByteBuf, PlayerIconData> STREAM_CODEC = StreamCodec.composite(
+                ByteBufCodecs.UUID, e -> e.playerId,
                 PlayerIconData::new
         );
 
@@ -236,7 +263,7 @@ public class PlayerTracker
     public static class OtherPlayerRenderer implements IIconRenderer<PlayerIconData>
     {
         @Override
-        public void renderIcon(PlayerIconData data, Player player, TextureManager textureManager, GuiGraphicsExtractor graphics, int x, int y, int alpha)
+        public void renderIcon(PlayerIconData data, Player player, TextureManager textureManager, GuiGraphics graphics, int x, int y, int alpha)
         {
             PlayerFaceRenderer.drawUUID(player, data.playerId, graphics, x, y, alpha);
         }
