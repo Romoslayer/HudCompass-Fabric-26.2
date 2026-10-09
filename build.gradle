@@ -141,7 +141,7 @@ fabricApi {
         createSourceSet = true
         modId = 'hudcompass-test'
         enableGameTests = true
-        enableClientGameTests = false
+        enableClientGameTests = true
     }
 }
 
@@ -175,4 +175,13 @@ tasks.register('runProductionGameTest', ServerProductionRunTask) {
     mods.from(tasks.named('gametestJar'))
     jvmArgs.add('-Dfabric-api.gametest')
     runDir = layout.buildDirectory.dir('run/productionGameTest')
+}
+
+// Client test runs (gradlew runClientGameTest): no crash dialog if a check fails -- the failure is in
+// the log and fails the run, and the user keeps working meanwhile. The window itself is kept off the
+// main monitor and away from the mouse by the test mod's own mixins.
+loom.runs.configureEach { run ->
+    if (run.name.toLowerCase().contains('gametest')) {
+        run.vmArg('-Dfabric.noGui=true')
+    }
 }
