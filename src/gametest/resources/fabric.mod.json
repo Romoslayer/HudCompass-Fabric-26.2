@@ -7,8 +7,14 @@
 	"entrypoints": {
 		"fabric-gametest": [
 			"dev.gigaherz.hudcompass.test.HudCompassGameTests"
+		],
+		"fabric-client-gametest": [
+			"dev.gigaherz.hudcompass.test.client.HudCompassClientGameTest"
 		]
 	},
+	"mixins": [
+		"hudcompass-test.mixins.json"
+	],
 	"depends": {
 		"hudcompass": "*"
 	}
