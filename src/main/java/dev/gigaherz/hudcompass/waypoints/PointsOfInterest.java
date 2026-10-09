@@ -20,6 +20,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -120,9 +121,20 @@ public class PointsOfInterest
      * payload happens to mention -- otherwise a sync telling the client "you have zero
      * server-side waypoints" (an empty payload) would leave stale client-local-disk-loaded
      * points sitting untouched in worlds the payload never bothered to list.
+     * <p>
+     * Every sync replaces the points with freshly decoded objects, so each point's label-fade
+     * state ({@link PointInfo#fade}) is carried over to its replacement by id. Otherwise a showing
+     * label would restart its fade-in on every sync and visibly blink -- and syncs can come about
+     * once a second while a far-away tracked player moves (see {@code PlayerTracker.PlayerWaypoint}).
      */
     public void read(RegistryFriendlyByteBuf buffer)
     {
+        Map<UUID, Float> fades = new HashMap<>();
+        perWorld.values().forEach(w -> w.points.values().forEach(p -> {
+            if (p.isServerManaged())
+                fades.put(p.getInternalId(), p.fade);
+        }));
+
         perWorld.values().forEach(w -> w.points.values().removeIf(PointInfo::isServerManaged));
 
         int numWorlds = buffer.readVarInt();
@@ -132,6 +144,12 @@ public class PointsOfInterest
             get(key).read(buffer);
         }
         savedNumber = changeNumber = syncNumber = syncedNumber = 0;
+
+        perWorld.values().forEach(w -> w.points.values().forEach(p -> {
+            Float fade = fades.get(p.getInternalId());
+            if (fade != null)
+                p.fade = fade;
+        }));
     }
 
     public void clear()
@@ -306,7 +324,12 @@ public class PointsOfInterest
             for (var child : list)
             {
                 var pointOpt = child.read(PointInfo.DISPATCH_CODEC);
-                pointOpt.ifPresent(point -> points.put(point.getInternalId(), point));
+                pointOpt.ifPresent(point -> {
+                    // Same as the network read below: a point needs its owner, or later edits to it
+                    // (setLabel/setPosition) never mark the store dirty.
+                    point.setOwner(this);
+                    points.put(point.getInternalId(), point);
+                });
             }
         }
 
